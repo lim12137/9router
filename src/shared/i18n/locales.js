@@ -633,12 +633,16 @@ export const zh = {
   // 导航
   nav: {
     dashboard: "仪表板",
+    endpoint: "端点",
     providers: "提供商",
     combos: "组合模型",
     usage: "使用统计",
     cliTools: "CLI 工具",
     settings: "设置",
     logout: "退出登录",
+    translator: "翻译调试",
+    debug: "调试",
+    system: "系统",
   },
 
   // 仪表板/端点

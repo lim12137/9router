@@ -37,11 +37,10 @@ function translate(t, lang, key, params = {}) {
   let value = t[lang];
 
   for (const k of keys) {
-    if (value && typeof value === "object") {
+    if (value && typeof value === "object" && k in value) {
       value = value[k];
     } else {
-      value = key;
-      break;
+      return key; // Return key if translation not found
     }
   }
 
@@ -57,7 +56,21 @@ function translate(t, lang, key, params = {}) {
  * I18n Provider Component
  */
 export function I18nProvider({ children }) {
-  const [language, setLanguageState] = useState(getInitialLanguage);
+  const [language, setLanguageState] = useState(DEFAULT_LANGUAGE);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    const saved = localStorage.getItem("9router-language");
+    if (saved && SUPPORTED_LANGUAGES[saved]) {
+      setLanguageState(saved);
+    } else {
+      const browserLang = navigator.language.split("-")[0];
+      if (SUPPORTED_LANGUAGES[browserLang]) {
+        setLanguageState(browserLang);
+      }
+    }
+  }, []);
 
   const setLanguage = (lang) => {
     if (SUPPORTED_LANGUAGES[lang]) {
