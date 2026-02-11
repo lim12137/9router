@@ -27,12 +27,16 @@ export const en = {
   // Navigation
   nav: {
     dashboard: "Dashboard",
+    endpoint: "Endpoint",
     providers: "Providers",
     combos: "Combos",
     usage: "Usage",
     cliTools: "CLI Tools",
     settings: "Settings",
     logout: "Logout",
+    translator: "Translator",
+    debug: "Debug",
+    system: "System",
   },
 
   // Dashboard/Endpoint
