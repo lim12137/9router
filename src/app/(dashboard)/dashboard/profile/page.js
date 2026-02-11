@@ -3,22 +3,40 @@
 import { useState, useEffect } from "react";
 import { Card, Button, Badge, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
+import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
 
 export default function ProfilePage() {
   const { theme, setTheme, isDark } = useTheme();
+  const { t } = useI18n();
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
   const [passStatus, setPassStatus] = useState({ type: "", message: "" });
   const [passLoading, setPassLoading] = useState(false);
 
+  // Proxy settings state
+  const [proxySettings, setProxySettings] = useState({
+    httpProxy: "",
+    httpsProxy: "",
+    allProxy: "",
+    noProxy: "",
+  });
+  const [proxyTestStatus, setProxyTestStatus] = useState({ type: "", message: "" });
+  const [proxyTestLoading, setProxyTestLoading] = useState(false);
+
   useEffect(() => {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
         setSettings(data);
+        setProxySettings({
+          httpProxy: data.httpProxy || "",
+          httpsProxy: data.httpsProxy || "",
+          allProxy: data.allProxy || "",
+          noProxy: data.noProxy || "",
+        });
         setLoading(false);
       })
       .catch((err) => {
@@ -30,7 +48,7 @@ export default function ProfilePage() {
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     if (passwords.new !== passwords.confirm) {
-      setPassStatus({ type: "error", message: "Passwords do not match" });
+      setPassStatus({ type: "error", message: t("settings.passwordMatch") });
       return;
     }
 
@@ -50,13 +68,13 @@ export default function ProfilePage() {
       const data = await res.json();
 
       if (res.ok) {
-        setPassStatus({ type: "success", message: "Password updated successfully" });
+        setPassStatus({ type: "success", message: t("settings.passwordUpdated") });
         setPasswords({ current: "", new: "", confirm: "" });
       } else {
-        setPassStatus({ type: "error", message: data.error || "Failed to update password" });
+        setPassStatus({ type: "error", message: data.error || t("settings.passwordUpdateFailed") });
       }
     } catch (err) {
-      setPassStatus({ type: "error", message: "An error occurred" });
+      setPassStatus({ type: "error", message: t("errors.unknownError") });
     } finally {
       setPassLoading(false);
     }
@@ -128,6 +146,50 @@ export default function ProfilePage() {
     }
   };
 
+  // Update proxy settings
+  const updateProxySetting = async (key, value) => {
+    setProxySettings(prev => ({ ...prev, [key]: value }));
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      if (!res.ok) {
+        throw new Error("Failed to update proxy setting");
+      }
+    } catch (err) {
+      console.error("Failed to update proxy setting:", err);
+    }
+  };
+
+  // Test proxy connection
+  const testProxy = async () => {
+    setProxyTestLoading(true);
+    setProxyTestStatus({ type: "", message: "" });
+
+    try {
+      const res = await fetch("/api/settings/proxy/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(proxySettings),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setProxyTestStatus({ type: "success", message: t("settings.proxyTestSuccess") });
+      } else {
+        setProxyTestStatus({ type: "error", message: t("settings.proxyTestFailed", { error: data.error }) });
+      }
+    } catch (err) {
+      setProxyTestStatus({ type: "error", message: t("settings.proxyTestFailed", { error: err.message }) });
+    } finally {
+      setProxyTestLoading(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex flex-col gap-6">
@@ -138,14 +200,12 @@ export default function ProfilePage() {
               <span className="material-symbols-outlined text-2xl">computer</span>
             </div>
             <div>
-              <h2 className="text-xl font-semibold">Local Mode</h2>
-              <p className="text-text-muted">Running on your machine</p>
+              <h2 className="text-xl font-semibold">{t("endpoint.localMode")}</h2>
+              <p className="text-text-muted">{t("endpoint.runningOnMachine")}</p>
             </div>
           </div>
           <div className="pt-4 border-t border-border">
-            <p className="text-sm text-text-muted">
-              All data is stored locally in the <code className="bg-sidebar px-1 rounded">~/.9router/db.json</code> file.
-            </p>
+            <p className="text-sm text-text-muted" dangerouslySetInnerHTML={{ __html: t("endpoint.dataStoredLocally", { path: "<code class=\"bg-sidebar px-1 rounded\">~/.9router/db.json</code>" }) }}></p>
           </div>
         </Card>
 
@@ -155,14 +215,14 @@ export default function ProfilePage() {
             <div className="p-2 rounded-lg bg-primary/10 text-primary">
               <span className="material-symbols-outlined text-[20px]">shield</span>
             </div>
-            <h3 className="text-lg font-semibold">Security</h3>
+            <h3 className="text-lg font-semibold">{t("settings.security")}</h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Require login</p>
+                <p className="font-medium">{t("settings.requireLogin")}</p>
                 <p className="text-sm text-text-muted">
-                  When ON, dashboard requires password. When OFF, access without login.
+                  {t("settings.requireLoginDesc")}
                 </p>
               </div>
               <Toggle
@@ -175,39 +235,32 @@ export default function ProfilePage() {
               <form onSubmit={handlePasswordChange} className="flex flex-col gap-4 pt-4 border-t border-border/50">
                 {settings.hasPassword && (
                   <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium">Current Password</label>
+                    <label className="text-sm font-medium">{t("settings.currentPassword")}</label>
                     <Input
                       type="password"
-                      placeholder="Enter current password"
+                      placeholder="•••••••••"
                       value={passwords.current}
                       onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
                       required
                     />
                   </div>
                 )}
-                {/* {!settings.hasPassword && (
-                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                    <p className="text-sm text-blue-600 dark:text-blue-400">
-                      Setting password for the first time. Leave current password empty or use default: <code className="bg-blue-500/20 px-1 rounded">123456</code>
-                    </p>
-                  </div>
-                )} */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium">New Password</label>
+                    <label className="text-sm font-medium">{t("settings.newPassword")}</label>
                     <Input
                       type="password"
-                      placeholder="Enter new password"
+                      placeholder="•••••••••"
                       value={passwords.new}
                       onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
                       required
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium">Confirm New Password</label>
+                    <label className="text-sm font-medium">{t("settings.confirmNewPassword")}</label>
                     <Input
                       type="password"
-                      placeholder="Confirm new password"
+                      placeholder="•••••••••"
                       value={passwords.confirm}
                       onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
                       required
@@ -223,7 +276,7 @@ export default function ProfilePage() {
 
                 <div className="pt-2">
                   <Button type="submit" variant="primary" loading={passLoading}>
-                    {settings.hasPassword ? "Update Password" : "Set Password"}
+                    {settings.hasPassword ? t("settings.updatePassword") : t("settings.setPassword")}
                   </Button>
                 </div>
               </form>
@@ -237,14 +290,14 @@ export default function ProfilePage() {
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
               <span className="material-symbols-outlined text-[20px]">route</span>
             </div>
-            <h3 className="text-lg font-semibold">Routing Strategy</h3>
+            <h3 className="text-lg font-semibold">{t("settings.routing")}</h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Round Robin</p>
+                <p className="font-medium">{t("settings.roundRobin")}</p>
                 <p className="text-sm text-text-muted">
-                  Cycle through accounts to distribute load
+                  {t("settings.roundRobinDesc")}
                 </p>
               </div>
               <Toggle
@@ -258,9 +311,9 @@ export default function ProfilePage() {
             {settings.fallbackStrategy === "round-robin" && (
               <div className="flex items-center justify-between pt-2 border-t border-border/50">
                 <div>
-                  <p className="font-medium">Sticky Limit</p>
+                  <p className="font-medium">{t("settings.stickyLimit")}</p>
                   <p className="text-sm text-text-muted">
-                    Calls per account before switching
+                    {t("settings.stickyLimitDesc")}
                   </p>
                 </div>
                 <Input
@@ -277,9 +330,97 @@ export default function ProfilePage() {
 
             <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
               {settings.fallbackStrategy === "round-robin"
-                ? `Currently distributing requests across all available accounts with ${settings.stickyRoundRobinLimit || 3} calls per account.`
-                : "Currently using accounts in priority order (Fill First)."}
+                ? `${t("settings.fillFirstDesc")} - ${settings.stickyRoundRobinLimit || 3} ${t("settings.stickyLimitDesc")}`
+                : t("settings.fillFirstDesc")}
             </p>
+          </div>
+        </Card>
+
+        {/* Proxy Settings (NEW) */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-500">
+              <span className="material-symbols-outlined text-[20px]">vpn_lock</span>
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold">{t("settings.proxy")}</h3>
+              <p className="text-sm text-text-muted">{t("settings.proxyDesc")}</p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-4">
+            {/* All Proxy */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">{t("settings.allProxy")}</label>
+              <Input
+                type="text"
+                placeholder={t("settings.allProxyPlaceholder")}
+                value={proxySettings.allProxy}
+                onChange={(e) => updateProxySetting("allProxy", e.target.value)}
+                disabled={loading}
+              />
+            </div>
+
+            {/* HTTP Proxy */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">{t("settings.httpProxy")}</label>
+              <Input
+                type="text"
+                placeholder={t("settings.httpProxyPlaceholder")}
+                value={proxySettings.httpProxy}
+                onChange={(e) => updateProxySetting("httpProxy", e.target.value)}
+                disabled={loading}
+              />
+            </div>
+
+            {/* HTTPS Proxy */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">{t("settings.httpsProxy")}</label>
+              <Input
+                type="text"
+                placeholder={t("settings.httpsProxyPlaceholder")}
+                value={proxySettings.httpsProxy}
+                onChange={(e) => updateProxySetting("httpsProxy", e.target.value)}
+                disabled={loading}
+              />
+            </div>
+
+            {/* No Proxy */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">{t("settings.noProxy")}</label>
+              <Input
+                type="text"
+                placeholder={t("settings.noProxyPlaceholder")}
+                value={proxySettings.noProxy}
+                onChange={(e) => updateProxySetting("noProxy", e.target.value)}
+                disabled={loading}
+              />
+              <p className="text-xs text-text-muted">{t("settings.noProxyDesc")}</p>
+            </div>
+
+            {/* Test Button */}
+            <div className="flex items-center justify-between pt-2 border-t border-border/50">
+              <p className="text-xs text-text-muted">
+                {(proxySettings.allProxy || proxySettings.httpProxy || proxySettings.httpsProxy)
+                  ? t("settings.proxyEnabled")
+                  : t("settings.proxyDisabled")}
+              </p>
+              <Button
+                variant="secondary"
+                onClick={testProxy}
+                loading={proxyTestLoading}
+                disabled={!proxySettings.allProxy && !proxySettings.httpProxy && !proxySettings.httpsProxy}
+              >
+                <span className="material-symbols-outlined text-[18px] mr-1">network_check</span>
+                {t("settings.testProxy")}
+              </Button>
+            </div>
+
+            {/* Test Status */}
+            {proxyTestStatus.message && (
+              <p className={`text-sm ${proxyTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                {proxyTestStatus.message}
+              </p>
+            )}
           </div>
         </Card>
 
@@ -289,14 +430,14 @@ export default function ProfilePage() {
             <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500">
               <span className="material-symbols-outlined text-[20px]">palette</span>
             </div>
-            <h3 className="text-lg font-semibold">Appearance</h3>
+            <h3 className="text-lg font-semibold">{t("settings.appearance")}</h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Dark Mode</p>
+                <p className="font-medium">{t("settings.darkMode")}</p>
                 <p className="text-sm text-text-muted">
-                  Switch between light and dark themes
+                  {t("settings.darkModeDesc")}
                 </p>
               </div>
               <Toggle
@@ -337,13 +478,13 @@ export default function ProfilePage() {
             <div className="p-2 rounded-lg bg-green-500/10 text-green-500">
               <span className="material-symbols-outlined text-[20px]">database</span>
             </div>
-            <h3 className="text-lg font-semibold">Data</h3>
+            <h3 className="text-lg font-semibold">{t("settings.data")}</h3>
           </div>
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between p-4 rounded-lg bg-bg border border-border">
               <div>
-                <p className="font-medium">Database Location</p>
-                <p className="text-sm text-text-muted font-mono">~/.9router/db.json</p>
+                <p className="font-medium">{t("settings.databaseLocation")}</p>
+                <p className="text-sm text-text-muted font-mono">{t("settings.databasePath")}</p>
               </div>
             </div>
           </div>
@@ -355,14 +496,14 @@ export default function ProfilePage() {
             <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500">
               <span className="material-symbols-outlined text-[20px]">monitoring</span>
             </div>
-            <h3 className="text-lg font-semibold">Observability</h3>
+            <h3 className="text-lg font-semibold">{t("settings.observability")}</h3>
           </div>
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Max Records</p>
+                <p className="font-medium">{t("settings.maxRecords")}</p>
                 <p className="text-sm text-text-muted">
-                  Maximum request detail records to keep (older records are auto-deleted)
+                  {t("settings.maxRecordsDesc")}
                 </p>
               </div>
               <Input
@@ -379,9 +520,9 @@ export default function ProfilePage() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Batch Size</p>
+                <p className="font-medium">{t("settings.batchSize")}</p>
                 <p className="text-sm text-text-muted">
-                  Number of items to accumulate before writing to database (higher = better performance)
+                  {t("settings.batchSizeDesc")}
                 </p>
               </div>
               <Input
@@ -398,9 +539,9 @@ export default function ProfilePage() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Flush Interval (ms)</p>
+                <p className="font-medium">{t("settings.flushInterval")}</p>
                 <p className="text-sm text-text-muted">
-                  Maximum time to wait before flushing buffer (prevents data loss during low traffic)
+                  {t("settings.flushIntervalDesc")}
                 </p>
               </div>
               <Input
@@ -417,9 +558,9 @@ export default function ProfilePage() {
 
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-medium">Max JSON Size (KB)</p>
+                <p className="font-medium">{t("settings.maxJsonSize")}</p>
                 <p className="text-sm text-text-muted">
-                  Maximum size for each JSON field (request/response) before truncation
+                  {t("settings.maxJsonSizeDesc")}
                 </p>
               </div>
               <Input
@@ -435,7 +576,7 @@ export default function ProfilePage() {
             </div>
 
             <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
-              Current: Keeps {settings.observabilityMaxRecords || 1000} records, batches every {settings.observabilityBatchSize || 20} requests, max {settings.observabilityMaxJsonSize || 1024}KB per field
+              {t("settings.maxRecords")} {settings.observabilityMaxRecords || 1000}, {t("settings.batchSize")} {settings.observabilityBatchSize || 20}, {t("settings.maxJsonSize")} {settings.observabilityMaxJsonSize || 1024}KB
             </p>
           </div>
         </Card>
@@ -443,7 +584,7 @@ export default function ProfilePage() {
         {/* App Info */}
         <div className="text-center text-sm text-text-muted py-4">
           <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
-          <p className="mt-1">Local Mode - All data stored on your machine</p>
+          <p className="mt-1">{t("endpoint.runningOnMachine")} - {t("endpoint.dataStoredLocally", { path: "" })}</p>
         </div>
       </div>
     </div>

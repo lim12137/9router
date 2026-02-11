@@ -54,7 +54,12 @@ const defaultData = {
     observabilityMaxRecords: 1000,
     observabilityBatchSize: 20,
     observabilityFlushIntervalMs: 5000,
-    observabilityMaxJsonSize: 1024
+    observabilityMaxJsonSize: 1024,
+    language: "en",
+    httpProxy: "",
+    httpsProxy: "",
+    allProxy: "",
+    noProxy: ""
   },
   pricing: {} // NEW: pricing configuration
 };
@@ -74,7 +79,12 @@ function cloneDefaultData() {
       observabilityMaxRecords: 1000,
       observabilityBatchSize: 20,
       observabilityFlushIntervalMs: 5000,
-      observabilityMaxJsonSize: 1024
+      observabilityMaxJsonSize: 1024,
+      language: "en",
+      httpProxy: "",
+      httpsProxy: "",
+      allProxy: "",
+      noProxy: ""
     },
     pricing: {},
   };

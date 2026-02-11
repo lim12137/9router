@@ -4,12 +4,13 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import PropTypes from "prop-types";
-import { ThemeToggle } from "@/shared/components";
+import { ThemeToggle, LanguageSwitcher } from "@/shared/components";
+import { useI18n } from "@/shared/i18n";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS } from "@/shared/constants/config";
 
-const getPageInfo = (pathname) => {
+const getPageInfo = (pathname, t) => {
   if (!pathname) return { title: "", description: "", breadcrumbs: [] };
-  
+
   // Provider detail page: /dashboard/providers/[id]
   const providerMatch = pathname.match(/\/providers\/([^/]+)$/);
   if (providerMatch) {
@@ -20,27 +21,28 @@ const getPageInfo = (pathname) => {
         title: providerInfo.name,
         description: "",
         breadcrumbs: [
-          { label: "Providers", href: "/dashboard/providers" },
+          { label: t("nav.providers"), href: "/dashboard/providers" },
           { label: providerInfo.name, image: `/providers/${providerInfo.id}.png` }
         ]
       };
     }
   }
-  
-  if (pathname.includes("/providers")) return { title: "Providers", description: "Manage your AI provider connections", breadcrumbs: [] };
-  if (pathname.includes("/combos")) return { title: "Combos", description: "Model combos with fallback", breadcrumbs: [] };
-  if (pathname.includes("/usage")) return { title: "Usage & Analytics", description: "Monitor your API usage, token consumption, and request logs", breadcrumbs: [] };
-  if (pathname.includes("/cli-tools")) return { title: "CLI Tools", description: "Configure CLI tools", breadcrumbs: [] };
-  if (pathname.includes("/endpoint")) return { title: "Endpoint", description: "API endpoint configuration", breadcrumbs: [] };
-  if (pathname.includes("/profile")) return { title: "Settings", description: "Manage your preferences", breadcrumbs: [] };
-  if (pathname === "/dashboard") return { title: "Endpoint", description: "API endpoint configuration", breadcrumbs: [] };
+
+  if (pathname.includes("/providers")) return { title: t("nav.providers"), description: t("providers.description"), breadcrumbs: [] };
+  if (pathname.includes("/combos")) return { title: t("nav.combos"), description: t("combos.description"), breadcrumbs: [] };
+  if (pathname.includes("/usage")) return { title: t("nav.usage"), description: t("usage.description"), breadcrumbs: [] };
+  if (pathname.includes("/cli-tools")) return { title: t("nav.cliTools"), description: t("cliTools.description"), breadcrumbs: [] };
+  if (pathname.includes("/endpoint")) return { title: t("endpoint.title"), description: t("endpoint.description"), breadcrumbs: [] };
+  if (pathname.includes("/profile")) return { title: t("nav.settings"), description: t("settings.description"), breadcrumbs: [] };
+  if (pathname === "/dashboard") return { title: t("endpoint.title"), description: t("endpoint.description"), breadcrumbs: [] };
   return { title: "", description: "", breadcrumbs: [] };
 };
 
 export default function Header({ onMenuClick, showMenuButton = true }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { title, description, breadcrumbs } = getPageInfo(pathname);
+  const { t } = useI18n();
+  const { title, description, breadcrumbs } = getPageInfo(pathname, t);
 
   const handleLogout = async () => {
     try {
@@ -119,6 +121,9 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
 
       {/* Right actions */}
       <div className="flex items-center gap-3 ml-auto">
+        {/* Language switcher */}
+        <LanguageSwitcher />
+
         {/* Theme toggle */}
         <ThemeToggle />
 
@@ -126,7 +131,7 @@ export default function Header({ onMenuClick, showMenuButton = true }) {
         <button
           onClick={handleLogout}
           className="flex items-center justify-center p-2 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-all"
-          title="Logout"
+          title={t("nav.logout")}
         >
           <span className="material-symbols-outlined">logout</span>
         </button>
