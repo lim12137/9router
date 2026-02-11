@@ -24,7 +24,7 @@ export async function POST(request) {
     const url = testUrl || "https://www.google.com";
 
     // Import proxyFetch to test
-    const { default: proxyFetch } = await import("@/open-sse/utils/proxyFetch");
+    const { default: proxyFetch } = await import("../../../../../../open-sse/utils/proxyFetch");
 
     // Test with timeout
     const controller = new AbortController();
