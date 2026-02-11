@@ -8,11 +8,14 @@ RUN --mount=type=cache,target=/root/.npm \
     if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
 # Copy source code (separate layer for better caching)
+COPY open-sse ./open-sse
 COPY src ./src
 COPY public ./public
+COPY cloud ./cloud
 COPY next.config.mjs ./
 COPY eslint.config.mjs ./
 COPY postcss.config.mjs ./
+COPY jsconfig.json ./
 
 # Build
 RUN npm run build
