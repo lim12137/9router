@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card, Button, Modal, Input, CardSkeleton, ModelSelectModal } from "@/shared/components";
+import { useI18n } from "@/shared/i18n";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 
@@ -9,6 +10,7 @@ import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/sha
 const VALID_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 
 export default function CombosPage() {
+  const { t } = useI18n();
   const [combos, setCombos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -55,7 +57,7 @@ export default function CombosPage() {
         setShowCreateModal(false);
       } else {
         const err = await res.json();
-        alert(err.error || "Failed to create combo");
+        alert(err.error || t("combos.failedToCreate"));
       }
     } catch (error) {
       console.log("Error creating combo:", error);
@@ -74,7 +76,7 @@ export default function CombosPage() {
         setEditingCombo(null);
       } else {
         const err = await res.json();
-        alert(err.error || "Failed to update combo");
+        alert(err.error || t("combos.failedToUpdate"));
       }
     } catch (error) {
       console.log("Error updating combo:", error);
