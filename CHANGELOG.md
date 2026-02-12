@@ -1,3 +1,18 @@
+# v0.2.67 (2026-02-12)
+
+## Features
+- Added GLM 5 model support for iFlow provider
+  - Added glm-5 model to iFlow (if) provider with thinking support
+  - Added glm-5 model to GLM (glm/glm-cn) providers
+  - Added pricing configuration for glm-5 model
+
+## Fixes
+- Fixed Gemini/Antigravity tool schema compatibility
+  - Added prefill and enumTitles to unsupported schema constraints
+  - Added logic to rename parametersJsonSchema to parameters
+  - Added logic to remove root-level $id while preserving $id as property name
+  - Prevents Gemini INVALID_ARGUMENT 400 errors from incompatible tool metadata
+
 # v0.2.66 (2026-02-06)
 
 ## Features
@@ -84,3 +99,31 @@
 ## Changes
 - README updates.
 - Antigravity bug fixes.
+
+# v0.2.32 (2025-02-12)
+
+## Features
+- Completed Chinese localization for Usage and Combos dashboard pages
+  - Added missing translation keys for usage overview, tables, and all UI elements
+  - Fixed ComboFormModal and ComboCard components to use useI18n hook properly
+  - Updated time formatting to support parameter interpolation (e.g., "{minutes}m ago", "{hours}h ago")
+  - Updated i18n locales.js with new translation keys
+
+## Fixes
+- Fixed socks5 protocol detection in proxyFetch for socks5:// URLs
+  - In getAgent function, new URL().protocol returns "socks5:" with trailing colon
+  - Changed protocol check from "socks5:" to "socks5" for correct matching
+  - Added .replace(/:$/, "") to strip trailing colon from protocol
+
+## Changes
+- Updated i18n locales.js with new keys:
+  - usage: overviewTitle, usageByModel, usageByAccount, usageByApiKey, unknownModel, unknownAccount, unknownKey, accountPlaceholder
+  - combos: nameRequired, comboPlaceholder, noModelsAddedYet, failedToCreate, failedToUpdate
+  - common: copyCombo
+  - settings: proxyEnabled, proxyDisabled (for toggle display)
+
+## Files Changed
+- src/app/(dashboard)/dashboard/usage/page.js
+- src/app/(dashboard)/dashboard/combos/page.js
+- src/shared/i18n/locales.js
+- open-sse/utils/proxyFetch.js
