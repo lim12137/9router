@@ -40,15 +40,18 @@ function getProxyUrl(targetUrl) {
  */
 async function getAgent(proxyUrl) {
   const proxyProtocol = new URL(proxyUrl).protocol;
-  
-  if (proxyProtocol === "socks:" || proxyProtocol === "socks5:" || proxyProtocol === "socks4:") {
+
+  // Remove trailing colon from protocol for consistent matching
+  const protocol = proxyProtocol.replace(/:$/, "");
+
+  if (protocol === "socks" || protocol === "socks5" || protocol === "socks4") {
     if (!socksAgent) {
       const { SocksProxyAgent } = await import("socks-proxy-agent");
       socksAgent = new SocksProxyAgent(proxyUrl);
     }
     return socksAgent;
   }
-  
+
   if (!proxyAgent) {
     const { HttpsProxyAgent } = await import("https-proxy-agent");
     proxyAgent = new HttpsProxyAgent(proxyUrl);
