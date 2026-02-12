@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
+import { AppConfig, getDefaultDataDir } from "./config.js";
 
 const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
 
@@ -12,26 +13,8 @@ function getAppName() {
   return "9router";
 }
 
-// Get user data directory based on platform
-function getUserDataDir() {
-  if (isCloud) return "/tmp"; // Fallback for Workers
-
-  if (process.env.DATA_DIR) return process.env.DATA_DIR;
-
-  const platform = process.platform;
-  const homeDir = os.homedir();
-  const appName = getAppName();
-
-  if (platform === "win32") {
-    return path.join(process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"), appName);
-  } else {
-    // macOS & Linux: ~/.{appName}
-    return path.join(homeDir, `.${appName}`);
-  }
-}
-
-// Data file path - stored in user home directory
-const DATA_DIR = getUserDataDir();
+// Use centralized config for data directory
+const DATA_DIR = AppConfig.database.dataDir;
 const DB_FILE = isCloud ? null : path.join(DATA_DIR, "db.json");
 
 // Ensure data directory exists

@@ -1,3 +1,30 @@
+# v0.2.70 (2026-02-12)
+
+## Features
+- Enhanced configuration system based on sub2api design
+  - Add src/lib/config.js for centralized configuration management
+  - Support comprehensive environment variable configuration
+  - Add configuration validation with detailed error messages
+  - Add getEnvString, getEnvInt, getEnvBool helpers
+  - Add printEnvHelp() for environment variable documentation
+  - Update localDb.js to use centralized config module
+  - Export PROXY_CONFIG, SESSION_CONFIG, FALLBACK_CONFIG
+  - Export LOGGING_CONFIG, USAGE_CONFIG, OBSERVABILITY_CONFIG
+  - Add getDefaultDataDir() with Docker detection
+  - Data directory priority: DATA_DIR > /app/data > ~/.9router
+  - Add configuration summary display function
+
+Environment Variables Added:
+- Server: SERVER_HOST, PORT, NODE_ENV
+- Database: DATA_DIR, DB_MAX_CONNECTIONS
+- Auth: JWT_SECRET, INITIAL_PASSWORD, REQUIRE_API_KEY, SESSION_TTL
+- Fallback: FALLBACK_STRATEGY, STICKY_ROUND_ROBIN_LIMIT
+- Proxy: HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, SOCKS_PROXY, NO_PROXY
+- Logging: LOG_LEVEL, ENABLE_REQUEST_LOGS, MAX_LOG_FILES
+- Cloud: CLOUD_URL, CLOUD_SYNC_ENABLED, CLOUD_SYNC_INTERVAL_MS
+- Usage: USAGE_TRACKING_ENABLED, USAGE_MAX_RECORDS
+- Observability: OBSERVABILITY_MAX_RECORDS, OBSERVABILITY_BATCH_SIZE
+
 # v0.2.69 (2026-02-12)
 
 ## Fixes
