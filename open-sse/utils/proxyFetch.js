@@ -1,7 +1,7 @@
 // Enhanced proxy fetch with SOCKS support and latency checking
 // Reference: sub2api backend/internal/service/proxy.go, backend/internal/service/proxy_latency_cache.go
 
-import { getProxyUrl, isSocksProxy, parseProxyUrl, getProxyFromEnv, shouldBypassProxy, PROXY_TEST_URLS, PROXY_LATENCY, testProxyLatency } from './proxyUtils.js';
+import { isSocksProxy, parseProxyUrl, getProxyFromEnv, PROXY_TEST_URLS, PROXY_LATENCY } from './proxyUtils.js';
 
 const isCloud = typeof caches !== "undefined" && typeof caches === "object";
 const originalFetch = globalThis.fetch;
@@ -88,7 +88,7 @@ export async function proxyFetch(targetUrl, options = {}) {
   const proxyConfig = await getProxyConfig(targetUrl);
 
   // Check if we should use proxy for this target
-  const shouldUseProxy = proxyConfig !== null && !shouldBypassProxy(targetUrl, proxyConfig.url);
+  const shouldUseProxy = proxyConfig !== null;
 
   if (!shouldUseProxy) {
     // Direct connection, no proxy
@@ -248,7 +248,6 @@ export function getProxyStats() {
         stats.unhealthy++;
       }
     }
-  }
   }
 
   return stats;

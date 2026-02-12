@@ -127,15 +127,8 @@ function getDefaultDataDir() {
 
   // Default: user home directory
   const homeDir = os.homedir();
-  const appName = "9router";
-
-  if (process.platform === "win32") {
-    const appData = process.env.APPDATA || path.join(homeDir, "AppData", "Roaming");
-    return path.join(appData, appName);
-  } else {
-    // macOS & Linux: ~/.9router
-    return path.join(homeDir, `.${appName}`);
-  }
+  // Use a stable dot directory on all platforms.
+  return path.join(homeDir, ".9router");
 }
 
 /**

@@ -40,25 +40,13 @@ let cachedConfig = null;
 
 let dbInstance = null;
 
-// Get app name
-function getAppName() {
-  return "9router";
-}
-
 // Get user data directory based on platform
 function getUserDataDir() {
   if (isCloud) return "/tmp";
 
   try {
-    const platform = process.platform;
     const homeDir = os.homedir();
-    const appName = getAppName();
-
-    if (platform === "win32") {
-      return path.join(process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"), appName);
-    } else {
-      return path.join(homeDir, `.${appName}`);
-    }
+    return path.join(homeDir, ".9router");
   } catch (error) {
     console.error("[requestDetailsDb] Failed to get user data directory:", error.message);
     return path.join(process.cwd(), ".9router");
