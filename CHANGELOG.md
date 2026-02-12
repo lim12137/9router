@@ -1,3 +1,31 @@
+# v0.2.68 (2026-02-12)
+
+## Features
+- Implemented sticky session system based on sub2api design
+  - Added open-sse/services/stickySession.js with session hash generation
+  - Support for explicit session binding via metadata.user_id (session_xxx pattern)
+  - Support for cache_control ephemeral content-based session tracking
+  - Fallback to full content hash with request context for session isolation
+  - In-memory session cache with 1-hour TTL
+  - Automatic session cleanup and cache size management (1000 sessions max)
+  - Session binding cleared when account becomes unavailable
+- Enhanced proxy system with caching and health monitoring
+  - Added open-sse/utils/proxyUtils.js for proxy URL parsing
+  - Added open-sse/utils/proxyFetch.js with latency tracking
+  - Support for HTTP/HTTPS/SOCKS4/SOCKS5 proxy protocols
+  - Proxy health status caching with 60-second TTL
+  - Proxy statistics and environment variable exposure
+  - NO_PROXY bypass pattern support
+
+## Fixes
+- Updated auth.js to integrate sticky session selection
+  - Added getProviderCredentialsWithSession for session-aware account selection
+  - Added bindSession to bind successful requests to accounts
+  - Modified markAccountUnavailable to clear session bindings
+- Updated chat.js to use sticky session on first request attempt
+  - Session binding occurs after successful response
+  - First attempt checks for existing session binding
+
 # v0.2.67 (2026-02-12)
 
 ## Features

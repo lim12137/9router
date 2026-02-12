@@ -1,10 +1,13 @@
 import {
   getProviderCredentials,
+  getProviderCredentialsWithSession,
   markAccountUnavailable,
   clearAccountError,
   extractApiKey,
   isValidApiKey,
+  bindSession,
 } from "../services/auth.js";
+import { parseSessionRequest } from "open-sse/services/stickySession.js";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
@@ -111,6 +114,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
   }
 
+  // Parse session request for sticky session support
+  const sessionRequest = request ? parseSessionRequest(body, request.headers) : null;
+
   // Extract userAgent from request
   const userAgent = request?.headers?.get("user-agent") || "";
 
@@ -118,9 +124,15 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let excludeConnectionId = null;
   let lastError = null;
   let lastStatus = null;
+  let isFirstAttempt = true;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionId);
+    // Use session-aware credentials selection on first attempt
+    const credentials = isFirstAttempt && sessionRequest
+      ? await getProviderCredentialsWithSession(provider, sessionRequest, excludeConnectionId)
+      : await getProviderCredentials(provider, excludeConnectionId);
+
+    isFirstAttempt = false;
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -164,6 +176,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       },
       onRequestSuccess: async () => {
         await clearAccountError(credentials.connectionId, credentials);
+        // Bind session to account on success (if not from sticky session)
+        if (sessionRequest && !credentials.fromStickySession) {
+          await bindSession(provider, sessionRequest, credentials.connectionId);
+        }
       }
     });
     
