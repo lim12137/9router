@@ -1,3 +1,16 @@
+# v0.2.69 (2026-02-12)
+
+## Fixes
+- Enhanced error handling and failover mechanism based on sub2api design
+  - Added temporary unschedule for retryable errors (Google 400, timeout, etc.)
+  - Added retry mechanism with exponential backoff on same account (max 3 retries)
+  - Enhanced accountFallback.js with checkRetryableError function
+  - Added tempUnschedulableUntil field for temporary account state
+  - Updated auth.js to support temporary unschedule and retry logic
+  - Updated chat.js to retry on same account before falling back
+  - Added getRetryBackoffDelay for retry timing (1s, 2s, 4s... max 10s)
+  - Preserved sticky session bindings during temporary unschedule
+
 # v0.2.68 (2026-02-12)
 
 ## Features

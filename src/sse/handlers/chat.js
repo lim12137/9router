@@ -7,7 +7,8 @@ import {
   isValidApiKey,
   bindSession,
 } from "../services/auth.js";
-import { parseSessionRequest } from "open-sse/services/stickySession.js";
+import { parseSessionRequest, TEMP_UNSCHEDULE_CONFIG } from "open-sse/services/stickySession.js";
+import { getRetryBackoffDelay } from "open-sse/services/accountFallback.js";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
@@ -125,6 +126,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastError = null;
   let lastStatus = null;
   let isFirstAttempt = true;
+  let retryCount = 0; // Track retry attempts on same account for temporary errors
 
   while (true) {
     // Use session-aware credentials selection on first attempt
@@ -183,16 +185,35 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
     
-    if (result.success) return result.response;
+    if (result.success) {
+      // Reset retry count on success
+      retryCount = 0;
+      return result.response;
+    }
 
     // Mark account unavailable (auto-calculates cooldown with exponential backoff)
-    const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider);
-    
+    const { shouldFallback, isRetryable } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider);
+
+    // If error is retryable on same account, retry with backoff
+    if (isRetryable && retryCount < TEMP_UNSCHEDULE_CONFIG.MAX_RETRIES) {
+      retryCount++;
+      const delayMs = getRetryBackoffDelay(retryCount - 1);
+      log.warn("AUTH", `Account ${accountId}... temporary error (${result.status}), retrying in ${delayMs}ms (attempt ${retryCount}/${TEMP_UNSCHEDULE_CONFIG.MAX_RETRIES})`);
+
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+
+      // Retry on same account (don't exclude)
+      continue;
+    }
+
+    // Fall back to next account
     if (shouldFallback) {
       log.warn("AUTH", `Account ${accountId}... unavailable (${result.status}), trying fallback`);
       excludeConnectionId = credentials.connectionId;
       lastError = result.error;
       lastStatus = result.status;
+      retryCount = 0; // Reset retry count for new account
       continue;
     }
 
