@@ -8,6 +8,12 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_CLOUD_URL: "https://9router.com",
   },
+  // Configure Server Actions request body size limit.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
   webpack: (config, { isServer }) => {
     // Ignore fs/path modules in browser bundle
     if (!isServer) {
@@ -17,6 +23,10 @@ const nextConfig = {
         path: false,
       };
     }
+    // Reduce webpack infrastructure log noise.
+    config.infrastructureLogging = {
+      level: 'error',
+    };
     return config;
   },
   // Exclude large directories from being watched/scanned
