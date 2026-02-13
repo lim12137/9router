@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
+import { homedir } from "os";
 import { join } from "path";
 import Database from "better-sqlite3";
-import { getUserHomeDir } from "@/lib/userPaths";
 
 /**
  * GET /api/oauth/cursor/auto-import
@@ -10,14 +10,13 @@ import { getUserHomeDir } from "@/lib/userPaths";
 export async function GET() {
   try {
     const platform = process.platform;
-    const homeDir = getUserHomeDir();
     let dbPath;
 
     // Determine database path based on platform
     if (platform === "darwin") {
-      dbPath = join(homeDir, "Library/Application Support/Cursor/User/globalStorage/state.vscdb");
+      dbPath = join(homedir(), "Library/Application Support/Cursor/User/globalStorage/state.vscdb");
     } else if (platform === "linux") {
-      dbPath = join(homeDir, ".config/Cursor/User/globalStorage/state.vscdb");
+      dbPath = join(homedir(), ".config/Cursor/User/globalStorage/state.vscdb");
     } else if (platform === "win32") {
       dbPath = join(process.env.APPDATA || "", "Cursor/User/globalStorage/state.vscdb");
     } else {

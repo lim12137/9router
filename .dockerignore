@@ -30,26 +30,3 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# Testing
-tester/
-**/*.test.js
-**/*.spec.js
-coverage/
-.nyc_output/
-
-# Documentation
-README.md
-CHANGELOG.md
-LICENSE
-docs/
-images/
-
-# CI/CD
-.github/
-.gitignore
-
-# Misc
-*.md
-.DS_Store
-Thumbs.db

@@ -6,11 +6,10 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { getUserHomeDir } from "@/lib/userPaths";
 
 const execAsync = promisify(exec);
 
-const getDroidDir = () => path.join(getUserHomeDir(), ".factory");
+const getDroidDir = () => path.join(os.homedir(), ".factory");
 const getDroidSettingsPath = () => path.join(getDroidDir(), "settings.json");
 
 // Check if droid CLI is installed

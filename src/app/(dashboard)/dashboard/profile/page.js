@@ -1,188 +1,24 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Card, Button, Toggle, Input } from "@/shared/components";
+import { useState, useEffect } from "react";
+import { Card, Button, Badge, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
-import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
-import { AI_PROVIDERS } from "@/shared/constants/providers";
-import { SettingsTabs, GeneralTab, SecurityTab, ProxyTab, AppearanceTab, AdvancedTab } from "./components";
 
-const TABS = ["general", "security", "proxy", "appearance", "advanced"];
-
-const PROXY_PROTOCOL_OPTIONS = [
-  { value: "http://", label: "HTTP" },
-  { value: "https://", label: "HTTPS" },
-  { value: "socks5://", label: "SOCKS5" },
-  { value: "socks5h://", label: "SOCKS5h" },
-  { value: "socks4://", label: "SOCKS4" },
-  { value: "socks4a://", label: "SOCKS4a" },
-];
-
-function normalizeProxyProtocol(protocol) {
-  const lower = String(protocol || "").toLowerCase();
-  if (lower === "sock5://") return "socks5://";
-  if (lower === "sock://") return "socks://";
-  if (lower === "sock4://") return "socks4://";
-  if (lower === "sock4a://") return "socks4a://";
-  return lower;
-}
-
-function splitProxyValue(rawValue) {
-  const value = typeof rawValue === "string" ? rawValue : "";
-  const match = value.match(/^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i);
-  if (!match) {
-    return { hasKnownProtocol: false, protocol: "", address: value };
-  }
-
-  const normalized = normalizeProxyProtocol(match[1]);
-  const hasKnownProtocol = PROXY_PROTOCOL_OPTIONS.some((item) => item.value === normalized);
-  if (!hasKnownProtocol) {
-    return { hasKnownProtocol: false, protocol: "", address: value };
-  }
-
-  return { hasKnownProtocol: true, protocol: normalized, address: match[2] || "" };
-}
-
-function ProxyAddressField({ t, value, onChange, placeholder, disabled }) {
-  const parsed = splitProxyValue(value);
-  const selectedProtocol = parsed.hasKnownProtocol ? parsed.protocol : "";
-  const inputValue = parsed.hasKnownProtocol ? parsed.address : (value || "");
-
-  return (
-    <div className="grid grid-cols-[130px_1fr] gap-2">
-      <select
-        value={selectedProtocol}
-        onChange={(e) => {
-          const nextProtocol = e.target.value;
-          const baseAddress = parsed.hasKnownProtocol ? parsed.address : (value || "");
-          if (!nextProtocol) {
-            onChange(baseAddress);
-            return;
-          }
-          onChange(baseAddress ? `${nextProtocol}${baseAddress}` : `${nextProtocol}`);
-        }}
-        disabled={disabled}
-        className="w-full py-2 px-3 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none"
-      >
-        <option value="">{t("settings.proxyProtocolManual")}</option>
-        {PROXY_PROTOCOL_OPTIONS.map((item) => (
-          <option key={item.value} value={item.value}>
-            {item.label}
-          </option>
-        ))}
-      </select>
-      <Input
-        type="text"
-        placeholder={placeholder}
-        value={inputValue}
-        onChange={(e) => {
-          const nextValue = e.target.value;
-          if (selectedProtocol) {
-            onChange(nextValue ? `${selectedProtocol}${nextValue}` : "");
-            return;
-          }
-          onChange(nextValue);
-        }}
-        disabled={disabled}
-      />
-    </div>
-  );
-}
-
-function createEmptyProxyProfile() {
-  const id = `proxy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return {
-    id,
-    name: "",
-    allProxy: "",
-    httpProxy: "",
-    httpsProxy: "",
-    noProxy: "",
-  };
-}
-
-function getProxyProfileAddress(profile) {
-  return profile?.allProxy || profile?.httpsProxy || profile?.httpProxy || "";
-}
-
-function ProfilePageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { t } = useI18n();
+export default function ProfilePage() {
   const { theme, setTheme, isDark } = useTheme();
-
-  const tabParam = searchParams.get("tab");
-  const initialTab = TABS.includes(tabParam) ? tabParam : "general";
-  const [activeTab, setActiveTab] = useState(initialTab);
-
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
-
-  // Password change state for SecurityTab
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
   const [passStatus, setPassStatus] = useState({ type: "", message: "" });
   const [passLoading, setPassLoading] = useState(false);
 
-  // Proxy settings state
-  const [proxySettings, setProxySettings] = useState({
-    httpProxy: "",
-    httpsProxy: "",
-    allProxy: "",
-    noProxy: "",
-  });
-  const [proxyProfiles, setProxyProfiles] = useState([]);
-  const [providerProxyBindings, setProviderProxyBindings] = useState({});
-  const [proxyProviders, setProxyProviders] = useState([]);
-
-  // Additional state for proxy functionality
-  const [proxyTestLoading, setProxyTestLoading] = useState(false);
-  const [proxyTestStatus, setProxyTestStatus] = useState({ type: "", message: "" });
-  const [bulkProxyProfileId, setBulkProxyProfileId] = useState("");
-  const [proxySaving, setProxySaving] = useState(false);
-  const [proxySaveStatus, setProxySaveStatus] = useState({ type: "", message: "" });
-  const [profileTestingId, setProfileTestingId] = useState("");
-  const [profileTestStatus, setProfileTestStatus] = useState({});
-
   useEffect(() => {
-    Promise.all([
-      fetch("/api/settings").then((res) => res.json()),
-      fetch("/api/provider-nodes").then((res) => res.json()).catch(() => ({ nodes: [] })),
-    ])
-      .then(([data, nodeData]) => {
+    fetch("/api/settings")
+      .then((res) => res.json())
+      .then((data) => {
         setSettings(data);
-        setProxySettings({
-          httpProxy: data.httpProxy || "",
-          httpsProxy: data.httpsProxy || "",
-          allProxy: data.allProxy || "",
-          noProxy: data.noProxy || "",
-        });
-        setProxyProfiles(Array.isArray(data.proxyProfiles) ? data.proxyProfiles : []);
-        setProviderProxyBindings(data.providerProxyBindings || {});
-
-        const builtins = Object.values(AI_PROVIDERS).map((provider) => ({
-          value: provider.id,
-          label: provider.name,
-        }));
-        const customNodes = (Array.isArray(nodeData?.nodes) ? nodeData.nodes : []).map((node) => ({
-          value: node.id,
-          label: node.name || node.id,
-        }));
-
-        const providerMap = new Map();
-        [...builtins, ...customNodes].forEach((item) => {
-          if (item?.value && !providerMap.has(item.value)) {
-            providerMap.set(item.value, item);
-          }
-        });
-
-        setProxyProviders(
-          Array.from(providerMap.values()).sort((a, b) =>
-            a.label.localeCompare(b.label, "en", { sensitivity: "base" })
-          )
-        );
         setLoading(false);
       })
       .catch((err) => {
@@ -191,13 +27,13 @@ function ProfilePageContent() {
       });
   }, []);
 
-  // Handle tab change with URL update
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    router.push(`/dashboard/profile?tab=${tab}`, { scroll: false });
-  };
+  const handlePasswordChange = async (e) => {
+    e.preventDefault();
+    if (passwords.new !== passwords.confirm) {
+      setPassStatus({ type: "error", message: "Passwords do not match" });
+      return;
+    }
 
-  const handlePasswordChange = async (current, newPass) => {
     setPassLoading(true);
     setPassStatus({ type: "", message: "" });
 
@@ -206,20 +42,21 @@ function ProfilePageContent() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          currentPassword: current,
-          newPassword: newPass,
+          currentPassword: passwords.current,
+          newPassword: passwords.new,
         }),
       });
 
       const data = await res.json();
 
       if (res.ok) {
-        return { success: true };
+        setPassStatus({ type: "success", message: "Password updated successfully" });
+        setPasswords({ current: "", new: "", confirm: "" });
       } else {
-        return { success: false, error: data.error || t("settings.passwordUpdateFailed") };
+        setPassStatus({ type: "error", message: data.error || "Failed to update password" });
       }
     } catch (err) {
-      return { success: false, error: t("errors.unknownError") };
+      setPassStatus({ type: "error", message: "An error occurred" });
     } finally {
       setPassLoading(false);
     }
@@ -291,308 +128,357 @@ function ProfilePageContent() {
     }
   };
 
-  // Update proxy settings
-  const updateProxySetting = async (key, value) => {
-    setProxySettings(prev => ({ ...prev, [key]: value }));
-
+  const updateObservabilityEnabled = async (enabled) => {
     try {
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [key]: value }),
+        body: JSON.stringify({ observabilityEnabled: enabled }),
       });
-      if (!res.ok) {
-        throw new Error("Failed to update proxy setting");
+      if (res.ok) {
+        setSettings(prev => ({ ...prev, observabilityEnabled: enabled }));
       }
     } catch (err) {
-      console.error("Failed to update proxy setting:", err);
+      console.error("Failed to update observabilityEnabled:", err);
     }
   };
 
-  // Test proxy connection
-  const testProxy = async () => {
-    setProxyTestLoading(true);
-    setProxyTestStatus({ type: "", message: "" });
-
-    try {
-      const res = await fetch("/api/settings/proxy/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(proxySettings),
-      });
-
-      const data = await res.json();
-
-      if (data.success) {
-        setProxyTestStatus({ type: "success", message: t("settings.proxyTestSuccess") });
-      } else {
-        setProxyTestStatus({ type: "error", message: t("settings.proxyTestFailed", { error: data.error }) });
-      }
-    } catch (err) {
-      setProxyTestStatus({ type: "error", message: t("settings.proxyTestFailed", { error: err.message }) });
-    } finally {
-      setProxyTestLoading(false);
-    }
-  };
-
-  const updateProxyProfileField = (profileId, key, value) => {
-    setProxyProfiles((prev) =>
-      prev.map((profile) => (profile.id === profileId ? { ...profile, [key]: value } : profile))
-    );
-    setProxySaveStatus({ type: "", message: "" });
-  };
-
-  const addProxyProfile = () => {
-    setProxyProfiles((prev) => [...prev, createEmptyProxyProfile()]);
-    setProxySaveStatus({ type: "", message: "" });
-  };
-
-  const removeProxyProfile = (profileId) => {
-    setProxyProfiles((prev) => prev.filter((profile) => profile.id !== profileId));
-    setBulkProxyProfileId((prev) => (prev === profileId ? "" : prev));
-    setProviderProxyBindings((prev) => {
-      const next = { ...prev };
-      Object.entries(next).forEach(([providerId, boundProfileId]) => {
-        if (boundProfileId === profileId) {
-          delete next[providerId];
-        }
-      });
-      return next;
-    });
-    setProxySaveStatus({ type: "", message: "" });
-  };
-
-  const updateProviderProxyBinding = (providerId, profileId) => {
-    setProviderProxyBindings((prev) => {
-      if (!profileId) {
-        const next = { ...prev };
-        delete next[providerId];
-        return next;
-      }
-      return { ...prev, [providerId]: profileId };
-    });
-    setProxySaveStatus({ type: "", message: "" });
-  };
-
-  const applyProxyBindingToAllProviders = () => {
-    if (!bulkProxyProfileId) return;
-
-    setProviderProxyBindings((prev) => {
-      const next = { ...prev };
-      proxyProviders.forEach((provider) => {
-        if (provider?.value) {
-          next[provider.value] = bulkProxyProfileId;
-        }
-      });
-      return next;
-    });
-    setProxySaveStatus({ type: "", message: "" });
-  };
-
-  const clearAllProviderProxyBindings = () => {
-    setProviderProxyBindings((prev) => {
-      const next = { ...prev };
-      delete next["*"];
-      proxyProviders.forEach((provider) => {
-        if (provider?.value) {
-          delete next[provider.value];
-        }
-      });
-      return next;
-    });
-    setProxySaveStatus({ type: "", message: "" });
-  };
-
-  const saveAdvancedProxySettings = async () => {
-    setProxySaving(true);
-    setProxySaveStatus({ type: "", message: "" });
-
-    try {
-      const sanitizedProfiles = proxyProfiles.map((profile, index) => ({
-        id: profile.id || `proxy-${index + 1}`,
-        name: profile.name || `Proxy ${index + 1}`,
-        allProxy: profile.allProxy || "",
-        httpProxy: profile.httpProxy || "",
-        httpsProxy: profile.httpsProxy || "",
-        noProxy: profile.noProxy || "",
-      }));
-
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          proxyProfiles: sanitizedProfiles,
-          providerProxyBindings,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to save proxy settings");
-      }
-
-      setProxyProfiles(sanitizedProfiles);
-      setProxySaveStatus({ type: "success", message: t("settings.proxySaved") });
-    } catch (err) {
-      setProxySaveStatus({ type: "error", message: t("settings.proxySaveFailed") });
-    } finally {
-      setProxySaving(false);
-    }
-  };
-
-  const testProxyProfile = async (profile) => {
-    if (!profile?.id) return;
-
-    setProfileTestingId(profile.id);
-    setProfileTestStatus((prev) => ({ ...prev, [profile.id]: { type: "", message: "" } }));
-
-    try {
-      const res = await fetch("/api/settings/proxy/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proxyProfile: profile }),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        setProfileTestStatus((prev) => ({
-          ...prev,
-          [profile.id]: {
-            type: "success",
-            message: t("settings.proxyTestSuccess"),
-          },
-        }));
-      } else {
-        setProfileTestStatus((prev) => ({
-          ...prev,
-          [profile.id]: {
-            type: "error",
-            message: t("settings.proxyTestFailed", { error: data.error }),
-          },
-        }));
-      }
-    } catch (err) {
-      setProfileTestStatus((prev) => ({
-        ...prev,
-        [profile.id]: {
-          type: "error",
-          message: t("settings.proxyTestFailed", { error: err.message }),
-        },
-      }));
-    } finally {
-      setProfileTestingId("");
-    }
-  };
+  const observabilityEnabled = settings.observabilityEnabled !== false;
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <SettingsTabs activeTab={activeTab} onTabChange={handleTabChange} />
+    <div className="max-w-2xl mx-auto">
+      <div className="flex flex-col gap-6">
+        {/* Local Mode Info */}
+        <Card>
+          <div className="flex items-center gap-4 mb-4">
+            <div className="size-12 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center">
+              <span className="material-symbols-outlined text-2xl">computer</span>
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold">Local Mode</h2>
+              <p className="text-text-muted">Running on your machine</p>
+            </div>
+          </div>
+          <div className="pt-4 border-t border-border">
+            <p className="text-sm text-text-muted">
+              All data is stored locally in the <code className="bg-sidebar px-1 rounded">~/.9router/db.json</code> file.
+            </p>
+          </div>
+        </Card>
 
-      {activeTab === "general" && (
-        <GeneralTab
-          settings={settings}
-          loading={loading}
-          onUpdateFallbackStrategy={updateFallbackStrategy}
-          onUpdateStickyLimit={updateStickyLimit}
-        />
-      )}
+        {/* Security */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+              <span className="material-symbols-outlined text-[20px]">shield</span>
+            </div>
+            <h3 className="text-lg font-semibold">Security</h3>
+          </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Require login</p>
+                <p className="text-sm text-text-muted">
+                  When ON, dashboard requires password. When OFF, access without login.
+                </p>
+              </div>
+              <Toggle
+                checked={settings.requireLogin === true}
+                onChange={() => updateRequireLogin(!settings.requireLogin)}
+                disabled={loading}
+              />
+            </div>
+            {settings.requireLogin === true && (
+              <form onSubmit={handlePasswordChange} className="flex flex-col gap-4 pt-4 border-t border-border/50">
+                {settings.hasPassword && (
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Current Password</label>
+                    <Input
+                      type="password"
+                      placeholder="Enter current password"
+                      value={passwords.current}
+                      onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
+                      required
+                    />
+                  </div>
+                )}
+                {/* {!settings.hasPassword && (
+                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                    <p className="text-sm text-blue-600 dark:text-blue-400">
+                      Setting password for the first time. Leave current password empty or use default: <code className="bg-blue-500/20 px-1 rounded">123456</code>
+                    </p>
+                  </div>
+                )} */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">New Password</label>
+                    <Input
+                      type="password"
+                      placeholder="Enter new password"
+                      value={passwords.new}
+                      onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Confirm New Password</label>
+                    <Input
+                      type="password"
+                      placeholder="Confirm new password"
+                      value={passwords.confirm}
+                      onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
 
-      {activeTab === "security" && (
-        <SecurityTab
-          settings={settings}
-          loading={loading}
-          onUpdateRequireLogin={updateRequireLogin}
-          onPasswordChange={handlePasswordChange}
-        />
-      )}
+                {passStatus.message && (
+                  <p className={`text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                    {passStatus.message}
+                  </p>
+                )}
 
-      {activeTab === "proxy" && (
-        <ProxyTab
-          loading={loading}
-          proxySettings={proxySettings}
-          proxyProfiles={proxyProfiles}
-          providerProxyBindings={providerProxyBindings}
-          proxyProviders={proxyProviders}
-          onUpdateProxySetting={updateProxySetting}
-          onTestProxy={async () => {
-            setProxyTestLoading(true);
-            setProxyTestStatus({ type: "", message: "" });
-            try {
-              const res = await fetch("/api/settings/proxy/test", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(proxySettings),
-              });
-              const data = await res.json();
-              if (data.success) {
-                setProxyTestStatus({ type: "success", message: t("settings.proxyTestSuccess") });
-              } else {
-                setProxyTestStatus({ type: "error", message: t("settings.proxyTestFailed", { error: data.error }) });
-              }
-            } catch (err) {
-              setProxyTestStatus({ type: "error", message: t("settings.proxyTestFailed", { error: err.message }) });
-            } finally {
-              setProxyTestLoading(false);
-            }
-          }}
-          onAddProxyProfile={addProxyProfile}
-          onRemoveProxyProfile={removeProxyProfile}
-          onUpdateProxyProfileField={updateProxyProfileField}
-          onUpdateProviderProxyBinding={updateProviderProxyBinding}
-          onSaveAdvancedProxySettings={async () => {
-            setProxySaving(true);
-            setProxySaveStatus({ type: "", message: "" });
-            try {
-              const sanitizedProfiles = proxyProfiles.map((profile, index) => ({
-                id: profile.id || `proxy-${index + 1}`,
-                name: profile.name || `Proxy ${index + 1}`,
-                allProxy: profile.allProxy || "",
-                httpProxy: profile.httpProxy || "",
-                httpsProxy: profile.httpsProxy || "",
-                noProxy: profile.noProxy || "",
-              }));
-              const res = await fetch("/api/settings", {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  proxyProfiles: sanitizedProfiles,
-                  providerProxyBindings,
-                }),
-              });
-              if (!res.ok) throw new Error("Failed to save proxy settings");
-              setProxyProfiles(sanitizedProfiles);
-              setProxySaveStatus({ type: "success", message: t("settings.proxySaved") });
-            } catch (err) {
-              setProxySaveStatus({ type: "error", message: t("settings.proxySaveFailed") });
-            } finally {
-              setProxySaving(false);
-            }
-          }}
-        />
-      )}
+                <div className="pt-2">
+                  <Button type="submit" variant="primary" loading={passLoading}>
+                    {settings.hasPassword ? "Update Password" : "Set Password"}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
+        </Card>
 
-      {activeTab === "appearance" && <AppearanceTab />}
+        {/* Routing Preferences */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
+              <span className="material-symbols-outlined text-[20px]">route</span>
+            </div>
+            <h3 className="text-lg font-semibold">Routing Strategy</h3>
+          </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Round Robin</p>
+                <p className="text-sm text-text-muted">
+                  Cycle through accounts to distribute load
+                </p>
+              </div>
+              <Toggle
+                checked={settings.fallbackStrategy === "round-robin"}
+                onChange={() => updateFallbackStrategy(settings.fallbackStrategy === "round-robin" ? "fill-first" : "round-robin")}
+                disabled={loading}
+              />
+            </div>
 
-      {activeTab === "advanced" && (
-        <AdvancedTab
-          settings={settings}
-          loading={loading}
-          onUpdateObservabilitySetting={updateObservabilitySetting}
-        />
-      )}
+            {/* Sticky Round Robin Limit */}
+            {settings.fallbackStrategy === "round-robin" && (
+              <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                <div>
+                  <p className="font-medium">Sticky Limit</p>
+                  <p className="text-sm text-text-muted">
+                    Calls per account before switching
+                  </p>
+                </div>
+                <Input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={settings.stickyRoundRobinLimit || 3}
+                  onChange={(e) => updateStickyLimit(e.target.value)}
+                  disabled={loading}
+                  className="w-20 text-center"
+                />
+              </div>
+            )}
 
-      {/* App Info */}
-      <div className="text-center text-sm text-text-muted py-6">
-        <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
-        <p className="mt-1">{t("endpoint.runningOnMachine")} - {t("endpoint.dataStoredLocally", { path: "" })}</p>
+            <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
+              {settings.fallbackStrategy === "round-robin"
+                ? `Currently distributing requests across all available accounts with ${settings.stickyRoundRobinLimit || 3} calls per account.`
+                : "Currently using accounts in priority order (Fill First)."}
+            </p>
+          </div>
+        </Card>
+
+        {/* Theme Preferences */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500">
+              <span className="material-symbols-outlined text-[20px]">palette</span>
+            </div>
+            <h3 className="text-lg font-semibold">Appearance</h3>
+          </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Dark Mode</p>
+                <p className="text-sm text-text-muted">
+                  Switch between light and dark themes
+                </p>
+              </div>
+              <Toggle
+                checked={isDark}
+                onChange={() => setTheme(isDark ? "light" : "dark")}
+              />
+            </div>
+
+            {/* Theme Options */}
+            <div className="pt-4 border-t border-border">
+              <div className="inline-flex p-1 rounded-lg bg-black/5 dark:bg-white/5">
+                {["light", "dark", "system"].map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setTheme(option)}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-all",
+                      theme === option
+                        ? "bg-white dark:bg-white/10 text-text-main shadow-sm"
+                        : "text-text-muted hover:text-text-main"
+                    )}
+                  >
+                    <span className="material-symbols-outlined text-[20px]">
+                      {option === "light" ? "light_mode" : option === "dark" ? "dark_mode" : "contrast"}
+                    </span>
+                    <span className="capitalize">{option}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Data Management */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-green-500/10 text-green-500">
+              <span className="material-symbols-outlined text-[20px]">database</span>
+            </div>
+            <h3 className="text-lg font-semibold">Data</h3>
+          </div>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-bg border border-border">
+              <div>
+                <p className="font-medium">Database Location</p>
+                <p className="text-sm text-text-muted font-mono">~/.9router/db.json</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Observability Settings */}
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500">
+              <span className="material-symbols-outlined text-[20px]">monitoring</span>
+            </div>
+            <h3 className="text-lg font-semibold">Observability</h3>
+          </div>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Enable Observability</p>
+                <p className="text-sm text-text-muted">
+                  Turn request detail recording on/off globally
+                </p>
+              </div>
+              <Toggle
+                checked={observabilityEnabled}
+                onChange={updateObservabilityEnabled}
+                disabled={loading}
+              />
+            </div>
+
+            <div className={cn("flex flex-col gap-4", !observabilityEnabled && "opacity-60")}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Max Records</p>
+                <p className="text-sm text-text-muted">
+                  Maximum request detail records to keep (older records are auto-deleted)
+                </p>
+              </div>
+              <Input
+                type="number"
+                min="100"
+                max="10000"
+                step="100"
+                value={settings.observabilityMaxRecords || 1000}
+                onChange={(e) => updateObservabilitySetting("observabilityMaxRecords", parseInt(e.target.value))}
+                disabled={loading || !observabilityEnabled}
+                className="w-28 text-center"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Batch Size</p>
+                <p className="text-sm text-text-muted">
+                  Number of items to accumulate before writing to database (higher = better performance)
+                </p>
+              </div>
+              <Input
+                type="number"
+                min="5"
+                max="100"
+                step="5"
+                value={settings.observabilityBatchSize || 20}
+                onChange={(e) => updateObservabilitySetting("observabilityBatchSize", parseInt(e.target.value))}
+                disabled={loading || !observabilityEnabled}
+                className="w-28 text-center"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Flush Interval (ms)</p>
+                <p className="text-sm text-text-muted">
+                  Maximum time to wait before flushing buffer (prevents data loss during low traffic)
+                </p>
+              </div>
+              <Input
+                type="number"
+                min="1000"
+                max="30000"
+                step="1000"
+                value={settings.observabilityFlushIntervalMs || 5000}
+                onChange={(e) => updateObservabilitySetting("observabilityFlushIntervalMs", parseInt(e.target.value))}
+                disabled={loading || !observabilityEnabled}
+                className="w-28 text-center"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Max JSON Size (KB)</p>
+                <p className="text-sm text-text-muted">
+                  Maximum size for each JSON field (request/response) before truncation
+                </p>
+              </div>
+              <Input
+                type="number"
+                min="100"
+                max="10240"
+                step="100"
+                value={settings.observabilityMaxJsonSize || 1024}
+                onChange={(e) => updateObservabilitySetting("observabilityMaxJsonSize", parseInt(e.target.value))}
+                disabled={loading || !observabilityEnabled}
+                className="w-28 text-center"
+              />
+            </div>
+
+            <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
+              Current: Keeps {settings.observabilityMaxRecords || 1000} records, batches every {settings.observabilityBatchSize || 20} requests, max {settings.observabilityMaxJsonSize || 1024}KB per field
+            </p>
+            </div>
+          </div>
+        </Card>
+
+        {/* App Info */}
+        <div className="text-center text-sm text-text-muted py-4">
+          <p>{APP_CONFIG.name} v{APP_CONFIG.version}</p>
+          <p className="mt-1">Local Mode - All data stored on your machine</p>
+        </div>
       </div>
     </div>
-  );
-}
-
-export default function ProfilePage() {
-  return (
-    <Suspense fallback={<div className="max-w-3xl mx-auto" />}>
-      <ProfilePageContent />
-    </Suspense>
   );
 }

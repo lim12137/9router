@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server";
-import { getProviderConnectionById, updateProviderConnection, isCloudEnabled, getSettings } from "@/lib/localDb";
+import { getProviderConnectionById, updateProviderConnection, isCloudEnabled } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/app/api/sync/cloud/route";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
-import { getProxyConfigForProvider } from "@/lib/proxy/settings";
-import { runWithProxyContext } from "@/lib/proxy/context";
-import "@/lib/proxy/fetchPatch";
 import {
   GEMINI_CONFIG,
   ANTIGRAVITY_CONFIG,
@@ -513,15 +510,12 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
 
-    const settings = await getSettings();
-    const providerProxy = getProxyConfigForProvider(connection.provider, settings);
-
     let result;
 
     if (connection.authType === "apikey") {
-      result = await runWithProxyContext(providerProxy, () => testApiKeyConnection(connection));
+      result = await testApiKeyConnection(connection);
     } else {
-      result = await runWithProxyContext(providerProxy, () => testOAuthConnection(connection));
+      result = await testOAuthConnection(connection);
     }
 
     // Build update data

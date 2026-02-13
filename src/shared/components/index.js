@@ -9,7 +9,6 @@ export { default as Avatar } from "./Avatar";
 export { default as Badge } from "./Badge";
 export { default as Toggle } from "./Toggle";
 export { default as ThemeToggle } from "./ThemeToggle";
-export { default as LanguageSwitcher } from "./LanguageSwitcher";
 export { ThemeProvider } from "./ThemeProvider";
 export { default as Sidebar } from "./Sidebar";
 export { default as Header } from "./Header";
@@ -24,9 +23,6 @@ export { default as KiroOAuthWrapper } from "./KiroOAuthWrapper";
 export { default as KiroSocialOAuthModal } from "./KiroSocialOAuthModal";
 export { default as CursorAuthModal } from "./CursorAuthModal";
 export { default as SegmentedControl } from "./SegmentedControl";
-
-// I18n
-export { I18nProvider, useI18n } from "@/shared/i18n";
 
 // Layouts
 export * from "./layouts";

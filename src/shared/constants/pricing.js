@@ -198,14 +198,7 @@ export const DEFAULT_PRICING = {
       reasoning: 4.50,
       cache_creation: 0.75
     },
-    "minimax-m2.1": {
-      input: 0.50,
-      output: 2.00,
-      cached: 0.25,
-      reasoning: 3.00,
-      cache_creation: 0.50
-    },
-    "minimax-m2.5": {
+    "minimax-m2": {
       input: 0.50,
       output: 2.00,
       cached: 0.25,
@@ -487,13 +480,6 @@ export const DEFAULT_PRICING = {
 
   // GLM
   glm: {
-    "glm-5": {
-      input: 1.00,
-      output: 4.00,
-      cached: 0.50,
-      reasoning: 6.00,
-      cache_creation: 1.00
-    },
     "glm-4.7": {
       input: 0.75,
       output: 3.00,

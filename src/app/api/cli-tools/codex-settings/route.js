@@ -6,11 +6,10 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import { getUserHomeDir } from "@/lib/userPaths";
 
 const execAsync = promisify(exec);
 
-const getCodexDir = () => path.join(getUserHomeDir(), ".codex");
+const getCodexDir = () => path.join(os.homedir(), ".codex");
 const getCodexConfigPath = () => path.join(getCodexDir(), "config.toml");
 const getCodexAuthPath = () => path.join(getCodexDir(), "auth.json");
 

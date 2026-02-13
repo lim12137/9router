@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getProviderConnections, getModelAliases, getCombos, getApiKeys, createApiKey, updateProviderConnection, updateSettings, getCloudUrl } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
-import { getUserHomeDir } from "@/lib/userPaths";
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
 
 const CLOUD_SYNC_TIMEOUT_MS = Number(process.env.CLOUD_SYNC_TIMEOUT_MS || 12000);
 
@@ -219,7 +219,7 @@ async function handleDisable(machineId, request) {
  */
 async function updateClaudeSettingsToLocal(machineId, host, cloudUrl) {
   try {
-    const settingsPath = path.join(getUserHomeDir(), ".claude", "settings.json");
+    const settingsPath = path.join(os.homedir(), ".claude", "settings.json");
     const cloudEndpoint = `${cloudUrl}/${machineId}`;
     const localUrl = `http://${host}`;
 

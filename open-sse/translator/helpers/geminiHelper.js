@@ -20,9 +20,7 @@ export const UNSUPPORTED_SCHEMA_CONSTRAINTS = [
   "title", "if", "then", "else", "contentMediaType", "contentEncoding",
   // UI/Styling properties (from Cursor tools - NOT JSON Schema standard)
   "cornerRadius", "fillColor", "fontFamily", "fontSize", "fontWeight",
-  "gap", "padding", "strokeColor", "strokeThickness", "textColor",
-  // Additional Gemini-incompatible fields
-  "prefill", "enumTitles"
+  "gap", "padding", "strokeColor", "strokeThickness", "textColor"
 ];
 
 // Default safety settings
@@ -268,89 +266,28 @@ function flattenTypeArrays(obj) {
 // Reference: CLIProxyAPI/internal/util/gemini_schema.go
 export function cleanJSONSchemaForAntigravity(schema) {
   if (!schema || typeof schema !== "object") return schema;
-
+  
   // Mutate directly (schema is only used once per request)
   let cleaned = schema;
-
-  // Phase 0: Rename parametersJsonSchema to parameters (Antigravity requirement)
-  function renameParametersJsonSchema(obj) {
-    if (!obj || typeof obj !== "object") return;
-
-    if (Array.isArray(obj)) {
-      for (const item of obj) {
-        renameParametersJsonSchema(item);
-      }
-    } else {
-      // Rename parametersJsonSchema -> parameters
-      if (obj.parametersJsonSchema !== undefined) {
-        obj.parameters = obj.parametersJsonSchema;
-        delete obj.parametersJsonSchema;
-      }
-      // Recurse into nested objects
-      for (const value of Object.values(obj)) {
-        if (value && typeof value === "object") {
-          renameParametersJsonSchema(value);
-        }
-      }
-    }
-  }
-
-  renameParametersJsonSchema(cleaned);
-
+  
   // Phase 1: Convert and prepare
   convertConstToEnum(cleaned);
   convertEnumValuesToStrings(cleaned);
-
+  
   // Phase 2: Flatten complex structures
   mergeAllOf(cleaned);
   flattenAnyOfOneOf(cleaned);
   flattenTypeArrays(cleaned);
-
-  // Phase 3: Remove root-level $id (but preserve $id as property name)
-  function removeRootId(obj) {
-    if (!obj || typeof obj !== "object") return;
-
-    // Only delete $id at the root level of a schema object
-    // If it's inside properties, it's a valid property name
-    if (obj.type && obj.$id !== undefined) {
-      delete obj.$id;
-    }
-
-    // Recurse into nested objects (but don't process properties' values for $id removal)
-    if (obj.properties) {
-      for (const value of Object.values(obj.properties)) {
-        if (value && typeof value === "object") {
-          removeRootId(value);
-        }
-      }
-    }
-    // Also recurse into other array/object values
-    for (const [key, value] of Object.entries(obj)) {
-      if (key !== "properties" && value && typeof value === "object") {
-        if (Array.isArray(value)) {
-          for (const item of value) {
-            if (item && typeof item === "object") {
-              removeRootId(item);
-            }
-          }
-        } else {
-          removeRootId(value);
-        }
-      }
-    }
-  }
-
-  removeRootId(cleaned);
-
-  // Phase 4: Remove all unsupported keywords at ALL levels (including inside arrays)
+  
+  // Phase 3: Remove all unsupported keywords at ALL levels (including inside arrays)
   removeUnsupportedKeywords(cleaned, UNSUPPORTED_SCHEMA_CONSTRAINTS);
-
-  // Phase 5: Cleanup required fields recursively
+  
+  // Phase 4: Cleanup required fields recursively
   function cleanupRequired(obj) {
     if (!obj || typeof obj !== "object") return;
-
+    
     if (obj.required && Array.isArray(obj.required) && obj.properties) {
-      const validRequired = obj.required.filter(field =>
+      const validRequired = obj.required.filter(field => 
         Object.prototype.hasOwnProperty.call(obj.properties, field)
       );
       if (validRequired.length === 0) {
@@ -359,7 +296,7 @@ export function cleanJSONSchemaForAntigravity(schema) {
         obj.required = validRequired;
       }
     }
-
+    
     // Recurse into nested objects
     for (const value of Object.values(obj)) {
       if (value && typeof value === "object") {
@@ -367,13 +304,13 @@ export function cleanJSONSchemaForAntigravity(schema) {
       }
     }
   }
-
+  
   cleanupRequired(cleaned);
-
-  // Phase 6: Add placeholder for empty object schemas (Antigravity requirement)
+  
+  // Phase 5: Add placeholder for empty object schemas (Antigravity requirement)
   function addPlaceholders(obj) {
     if (!obj || typeof obj !== "object") return;
-
+    
     if (obj.type === "object") {
       if (!obj.properties || Object.keys(obj.properties).length === 0) {
         obj.properties = {
@@ -385,7 +322,7 @@ export function cleanJSONSchemaForAntigravity(schema) {
         obj.required = ["reason"];
       }
     }
-
+    
     // Recurse into nested objects
     for (const value of Object.values(obj)) {
       if (value && typeof value === "object") {
@@ -393,9 +330,9 @@ export function cleanJSONSchemaForAntigravity(schema) {
       }
     }
   }
-
+  
   addPlaceholders(cleaned);
-
+  
   return cleaned;
 }
 

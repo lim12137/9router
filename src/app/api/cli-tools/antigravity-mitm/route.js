@@ -1,3 +1,5 @@
+"use server";
+
 import { NextResponse } from "next/server";
 import { getMitmStatus, startMitm, stopMitm, getCachedPassword, setCachedPassword } from "@/mitm/manager";
 

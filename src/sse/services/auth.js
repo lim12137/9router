@@ -1,15 +1,5 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings } from "@/lib/localDb";
-import {
-  isAccountUnavailable,
-  getUnavailableUntil,
-  getEarliestRateLimitedUntil,
-  formatRetryAfter,
-  checkFallbackError,
-  filterAvailableAccounts,
-  TEMP_UNSCHEDULE_CONFIG,
-  getRetryBackoffDelay
-} from "open-sse/services/accountFallback.js";
-import { getSessionAccount, bindSessionToAccount, clearSessionBindings, generateSessionHash, parseSessionRequest } from "open-sse/services/stickySession.js";
+import { isAccountUnavailable, getUnavailableUntil, getEarliestRateLimitedUntil, formatRetryAfter, checkFallbackError } from "open-sse/services/accountFallback.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -53,7 +43,11 @@ export async function getProviderCredentials(provider, excludeConnectionId = nul
     }
 
     // Filter out unavailable accounts and excluded connection
-    const availableConnections = filterAvailableAccounts(connections, excludeConnectionId);
+    const availableConnections = connections.filter(c => {
+      if (excludeConnectionId && c.id === excludeConnectionId) return false;
+      if (isAccountUnavailable(c.rateLimitedUntil)) return false;
+      return true;
+    });
 
     log.debug("AUTH", `${provider} | available: ${availableConnections.length}/${connections.length}`);
     connections.forEach(c => {
@@ -150,76 +144,8 @@ export async function getProviderCredentials(provider, excludeConnectionId = nul
 }
 
 /**
- * Get provider credentials with sticky session support
- * Returns account based on session binding if available
- * @param {string} provider - Provider name
- * @param {object|null} sessionRequest - Parsed session request
- * @param {string|null} excludeConnectionId - Connection ID to exclude
- */
-export async function getProviderCredentialsWithSession(provider, sessionRequest = null, excludeConnectionId = null) {
-  // If session info provided, check for existing binding
-  if (sessionRequest) {
-    const sessionHash = generateSessionHash(sessionRequest);
-    if (sessionHash) {
-      const boundAccountId = getSessionAccount(provider, sessionHash);
-      if (boundAccountId) {
-        // Check if bound account is still available
-        const connections = await getProviderConnections({ provider, isActive: true });
-        const boundAccount = connections.find(c => c.id === boundAccountId);
-
-        if (boundAccount && !isAccountUnavailable(boundAccount.rateLimitedUntil)) {
-          log.info("AUTH", `${provider} | sticky session hit: ${boundAccountId.slice(0, 8)}...`);
-          // Update lastUsedAt
-          await updateProviderConnection(boundAccount.id, {
-            lastUsedAt: new Date().toISOString()
-          });
-          return {
-            apiKey: boundAccount.apiKey,
-            accessToken: boundAccount.accessToken,
-            refreshToken: boundAccount.refreshToken,
-            projectId: boundAccount.projectId,
-            copilotToken: boundAccount.providerSpecificData?.copilotToken,
-            providerSpecificData: boundAccount.providerSpecificData,
-            connectionId: boundAccount.id,
-            testStatus: boundAccount.testStatus,
-            lastError: boundAccount.lastError,
-            rateLimitedUntil: boundAccount.rateLimitedUntil,
-            fromStickySession: true
-          };
-        } else {
-          // Bound account unavailable, clear binding
-          log.info("AUTH", `${provider} | clearing stale session binding`);
-          clearSessionBindings(provider, boundAccountId);
-        }
-      }
-    }
-  }
-
-  // Fallback to regular account selection
-  return getProviderCredentials(provider, excludeConnectionId);
-}
-
-/**
- * Bind session to account after successful request
- * @param {string} provider - Provider name
- * @param {object} sessionRequest - Parsed session request
- * @param {string} accountId - Account ID to bind
- */
-export async function bindSession(provider, sessionRequest, accountId) {
-  if (!sessionRequest || !accountId) return;
-
-  const sessionHash = generateSessionHash(sessionRequest);
-  if (sessionHash) {
-    bindSessionToAccount(provider, sessionHash, accountId);
-    log.debug("AUTH", `${provider} | session bound to ${accountId.slice(0, 8)}...`);
-  }
-}
-
-/**
  * Mark account as unavailable — reads backoffLevel from DB, calculates cooldown with exponential backoff, saves new level
- * Also clears all session bindings for this account
- * Enhanced with temporary unschedule support for retryable errors
- * @returns {{ shouldFallback: boolean, cooldownMs: number, isRetryable: boolean }}
+ * @returns {{ shouldFallback: boolean, cooldownMs: number }}
  */
 export async function markAccountUnavailable(connectionId, status, errorText, provider = null) {
   // Read current connection to get backoffLevel
@@ -227,36 +153,11 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   const conn = connections.find(c => c.id === connectionId);
   const backoffLevel = conn?.backoffLevel || 0;
 
-  const { shouldFallback, cooldownMs, newBackoffLevel, isRetryable } = checkFallbackError(status, errorText, backoffLevel);
-  if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0, isRetryable: true };
+  const { shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
+  if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
-  const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
-
-  // If retryable, apply temporary unschedule instead of permanent cooldown
-  if (isRetryable) {
-    const tempUnschedulableUntil = getUnavailableUntil(TEMP_UNSCHEDULE_CONFIG.DURATION);
-
-    await updateProviderConnection(connectionId, {
-      tempUnschedulableUntil,
-      testStatus: "temp_unavailable",
-      lastError: reason,
-      errorCode: status,
-      lastErrorAt: new Date().toISOString()
-    });
-
-    if (provider && status && reason) {
-      console.warn(`⏸️ ${provider} [${status}]: ${reason} (temporary unschedule, retry on same account)`);
-    }
-
-    return {
-      shouldFallback: false, // Don't fallback yet
-      cooldownMs: 0, // Ready for immediate retry
-      isRetryable: true
-    };
-  }
-
-  // Permanent error - apply full cooldown
   const rateLimitedUntil = getUnavailableUntil(cooldownMs);
+  const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
 
   await updateProviderConnection(connectionId, {
     rateLimitedUntil,
@@ -267,42 +168,30 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     backoffLevel: newBackoffLevel ?? backoffLevel
   });
 
-  // Clear all session bindings for this account (force re-routing)
-  if (provider) {
-    const cleared = clearSessionBindings(provider, connectionId);
-    if (cleared > 0) {
-      log.info("AUTH", `${provider} | cleared ${cleared} session binding(s) for unavailable account`);
-    }
-  }
-
   if (provider && status && reason) {
     console.error(`❌ ${provider} [${status}]: ${reason}`);
   }
 
-  return { shouldFallback: true, cooldownMs, isRetryable: false };
+  return { shouldFallback: true, cooldownMs };
 }
 
 /**
  * Clear account error status (only if currently has error)
  * Optimized to avoid unnecessary DB updates
- * Also clears temporary unschedule state
  */
 export async function clearAccountError(connectionId, currentConnection) {
   // Only update if currently has error status
   const hasError = currentConnection.testStatus === "unavailable" ||
-                   currentConnection.testStatus === "temp_unavailable" ||
                    currentConnection.lastError ||
-                   currentConnection.rateLimitedUntil ||
-                   currentConnection.tempUnschedulableUntil;
-
+                   currentConnection.rateLimitedUntil;
+  
   if (!hasError) return; // Skip if already clean
-
+  
   await updateProviderConnection(connectionId, {
     testStatus: "active",
     lastError: null,
     lastErrorAt: null,
     rateLimitedUntil: null,
-    tempUnschedulableUntil: null,
     backoffLevel: 0
   });
   log.info("AUTH", `Account ${connectionId.slice(0,8)} error cleared`);

@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
-import { AppConfig, getDefaultDataDir } from "./config.js";
 
 const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
 
@@ -13,8 +12,26 @@ function getAppName() {
   return "9router";
 }
 
-// Use centralized config for data directory
-const DATA_DIR = AppConfig.database.dataDir;
+// Get user data directory based on platform
+function getUserDataDir() {
+  if (isCloud) return "/tmp"; // Fallback for Workers
+
+  if (process.env.DATA_DIR) return process.env.DATA_DIR;
+
+  const platform = process.platform;
+  const homeDir = os.homedir();
+  const appName = getAppName();
+
+  if (platform === "win32") {
+    return path.join(process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"), appName);
+  } else {
+    // macOS & Linux: ~/.{appName}
+    return path.join(homeDir, `.${appName}`);
+  }
+}
+
+// Data file path - stored in user home directory
+const DATA_DIR = getUserDataDir();
 const DB_FILE = isCloud ? null : path.join(DATA_DIR, "db.json");
 
 // Ensure data directory exists
@@ -34,17 +51,11 @@ const defaultData = {
     cloudEnabled: false,
     stickyRoundRobinLimit: 3,
     requireLogin: true,
+    observabilityEnabled: true,
     observabilityMaxRecords: 1000,
     observabilityBatchSize: 20,
     observabilityFlushIntervalMs: 5000,
-    observabilityMaxJsonSize: 1024,
-    language: "en",
-    httpProxy: "",
-    httpsProxy: "",
-    allProxy: "",
-    noProxy: "",
-    proxyProfiles: [],
-    providerProxyBindings: {}
+    observabilityMaxJsonSize: 1024
   },
   pricing: {} // NEW: pricing configuration
 };
@@ -61,17 +72,11 @@ function cloneDefaultData() {
       cloudEnabled: false,
       stickyRoundRobinLimit: 3,
       requireLogin: true,
+      observabilityEnabled: true,
       observabilityMaxRecords: 1000,
       observabilityBatchSize: 20,
       observabilityFlushIntervalMs: 5000,
-      observabilityMaxJsonSize: 1024,
-      language: "en",
-      httpProxy: "",
-      httpsProxy: "",
-      allProxy: "",
-      noProxy: "",
-      proxyProfiles: [],
-      providerProxyBindings: {}
+      observabilityMaxJsonSize: 1024
     },
     pricing: {},
   };
