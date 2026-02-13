@@ -1,11 +1,108 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Card, Button, Badge, Toggle, Input } from "@/shared/components";
+import { Card, Button, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
+import { AI_PROVIDERS } from "@/shared/constants/providers";
+
+const PROXY_PROTOCOL_OPTIONS = [
+  { value: "http://", label: "HTTP" },
+  { value: "https://", label: "HTTPS" },
+  { value: "socks5://", label: "SOCKS5" },
+  { value: "socks5h://", label: "SOCKS5h" },
+  { value: "socks4://", label: "SOCKS4" },
+  { value: "socks4a://", label: "SOCKS4a" },
+];
+
+function normalizeProxyProtocol(protocol) {
+  const lower = String(protocol || "").toLowerCase();
+  if (lower === "sock5://") return "socks5://";
+  if (lower === "sock://") return "socks://";
+  if (lower === "sock4://") return "socks4://";
+  if (lower === "sock4a://") return "socks4a://";
+  return lower;
+}
+
+function splitProxyValue(rawValue) {
+  const value = typeof rawValue === "string" ? rawValue : "";
+  const match = value.match(/^([a-z][a-z0-9+.-]*:\/\/)(.*)$/i);
+  if (!match) {
+    return { hasKnownProtocol: false, protocol: "", address: value };
+  }
+
+  const normalized = normalizeProxyProtocol(match[1]);
+  const hasKnownProtocol = PROXY_PROTOCOL_OPTIONS.some((item) => item.value === normalized);
+  if (!hasKnownProtocol) {
+    return { hasKnownProtocol: false, protocol: "", address: value };
+  }
+
+  return { hasKnownProtocol: true, protocol: normalized, address: match[2] || "" };
+}
+
+function ProxyAddressField({ t, value, onChange, placeholder, disabled }) {
+  const parsed = splitProxyValue(value);
+  const selectedProtocol = parsed.hasKnownProtocol ? parsed.protocol : "";
+  const inputValue = parsed.hasKnownProtocol ? parsed.address : (value || "");
+
+  return (
+    <div className="grid grid-cols-[130px_1fr] gap-2">
+      <select
+        value={selectedProtocol}
+        onChange={(e) => {
+          const nextProtocol = e.target.value;
+          const baseAddress = parsed.hasKnownProtocol ? parsed.address : (value || "");
+          if (!nextProtocol) {
+            onChange(baseAddress);
+            return;
+          }
+          onChange(baseAddress ? `${nextProtocol}${baseAddress}` : `${nextProtocol}`);
+        }}
+        disabled={disabled}
+        className="w-full py-2 px-3 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none"
+      >
+        <option value="">{t("settings.proxyProtocolManual")}</option>
+        {PROXY_PROTOCOL_OPTIONS.map((item) => (
+          <option key={item.value} value={item.value}>
+            {item.label}
+          </option>
+        ))}
+      </select>
+      <Input
+        type="text"
+        placeholder={placeholder}
+        value={inputValue}
+        onChange={(e) => {
+          const nextValue = e.target.value;
+          if (selectedProtocol) {
+            onChange(nextValue ? `${selectedProtocol}${nextValue}` : "");
+            return;
+          }
+          onChange(nextValue);
+        }}
+        disabled={disabled}
+      />
+    </div>
+  );
+}
+
+function createEmptyProxyProfile() {
+  const id = `proxy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    id,
+    name: "",
+    allProxy: "",
+    httpProxy: "",
+    httpsProxy: "",
+    noProxy: "",
+  };
+}
+
+function getProxyProfileAddress(profile) {
+  return profile?.allProxy || profile?.httpsProxy || profile?.httpProxy || "";
+}
 
 export default function ProfilePage() {
   const { theme, setTheme, isDark } = useTheme();
@@ -23,13 +120,23 @@ export default function ProfilePage() {
     allProxy: "",
     noProxy: "",
   });
+  const [proxyProfiles, setProxyProfiles] = useState([]);
+  const [providerProxyBindings, setProviderProxyBindings] = useState({});
+  const [proxyProviders, setProxyProviders] = useState([]);
+  const [bulkProxyProfileId, setBulkProxyProfileId] = useState("");
+  const [proxySaving, setProxySaving] = useState(false);
+  const [proxySaveStatus, setProxySaveStatus] = useState({ type: "", message: "" });
+  const [profileTestStatus, setProfileTestStatus] = useState({});
+  const [profileTestingId, setProfileTestingId] = useState("");
   const [proxyTestStatus, setProxyTestStatus] = useState({ type: "", message: "" });
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/settings")
-      .then((res) => res.json())
-      .then((data) => {
+    Promise.all([
+      fetch("/api/settings").then((res) => res.json()),
+      fetch("/api/provider-nodes").then((res) => res.json()).catch(() => ({ nodes: [] })),
+    ])
+      .then(([data, nodeData]) => {
         setSettings(data);
         setProxySettings({
           httpProxy: data.httpProxy || "",
@@ -37,6 +144,36 @@ export default function ProfilePage() {
           allProxy: data.allProxy || "",
           noProxy: data.noProxy || "",
         });
+        setProxyProfiles(Array.isArray(data.proxyProfiles) ? data.proxyProfiles : []);
+        setProviderProxyBindings(data.providerProxyBindings || {});
+
+        const builtins = Object.values(AI_PROVIDERS).map((provider) => ({
+          value: provider.id,
+          label: provider.name,
+        }));
+        const customNodes = (Array.isArray(nodeData?.nodes) ? nodeData.nodes : []).map((node) => ({
+          value: node.id,
+          label: node.name || node.id,
+        }));
+        const fromBindings = Object.keys(data.providerProxyBindings || {})
+          .filter((providerId) => providerId !== "*")
+          .map((providerId) => ({
+            value: providerId,
+            label: providerId,
+          }));
+
+        const providerMap = new Map();
+        [...builtins, ...customNodes, ...fromBindings].forEach((item) => {
+          if (item?.value && !providerMap.has(item.value)) {
+            providerMap.set(item.value, item);
+          }
+        });
+
+        setProxyProviders(
+          Array.from(providerMap.values()).sort((a, b) =>
+            a.label.localeCompare(b.label, "en", { sensitivity: "base" })
+          )
+        );
         setLoading(false);
       })
       .catch((err) => {
@@ -190,6 +327,154 @@ export default function ProfilePage() {
     }
   };
 
+  const updateProxyProfileField = (profileId, key, value) => {
+    setProxyProfiles((prev) =>
+      prev.map((profile) => (profile.id === profileId ? { ...profile, [key]: value } : profile))
+    );
+    setProxySaveStatus({ type: "", message: "" });
+  };
+
+  const addProxyProfile = () => {
+    setProxyProfiles((prev) => [...prev, createEmptyProxyProfile()]);
+    setProxySaveStatus({ type: "", message: "" });
+  };
+
+  const removeProxyProfile = (profileId) => {
+    setProxyProfiles((prev) => prev.filter((profile) => profile.id !== profileId));
+    setBulkProxyProfileId((prev) => (prev === profileId ? "" : prev));
+    setProviderProxyBindings((prev) => {
+      const next = { ...prev };
+      Object.entries(next).forEach(([providerId, boundProfileId]) => {
+        if (boundProfileId === profileId) {
+          delete next[providerId];
+        }
+      });
+      return next;
+    });
+    setProxySaveStatus({ type: "", message: "" });
+  };
+
+  const updateProviderProxyBinding = (providerId, profileId) => {
+    setProviderProxyBindings((prev) => {
+      if (!profileId) {
+        const next = { ...prev };
+        delete next[providerId];
+        return next;
+      }
+      return { ...prev, [providerId]: profileId };
+    });
+    setProxySaveStatus({ type: "", message: "" });
+  };
+
+  const applyProxyBindingToAllProviders = () => {
+    if (!bulkProxyProfileId) return;
+
+    setProviderProxyBindings((prev) => {
+      const next = { ...prev };
+      proxyProviders.forEach((provider) => {
+        if (provider?.value) {
+          next[provider.value] = bulkProxyProfileId;
+        }
+      });
+      return next;
+    });
+    setProxySaveStatus({ type: "", message: "" });
+  };
+
+  const clearAllProviderProxyBindings = () => {
+    setProviderProxyBindings((prev) => {
+      const next = { ...prev };
+      delete next["*"];
+      proxyProviders.forEach((provider) => {
+        if (provider?.value) {
+          delete next[provider.value];
+        }
+      });
+      return next;
+    });
+    setProxySaveStatus({ type: "", message: "" });
+  };
+
+  const saveAdvancedProxySettings = async () => {
+    setProxySaving(true);
+    setProxySaveStatus({ type: "", message: "" });
+
+    try {
+      const sanitizedProfiles = proxyProfiles.map((profile, index) => ({
+        id: profile.id || `proxy-${index + 1}`,
+        name: profile.name || `Proxy ${index + 1}`,
+        allProxy: profile.allProxy || "",
+        httpProxy: profile.httpProxy || "",
+        httpsProxy: profile.httpsProxy || "",
+        noProxy: profile.noProxy || "",
+      }));
+
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proxyProfiles: sanitizedProfiles,
+          providerProxyBindings,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to save proxy settings");
+      }
+
+      setProxyProfiles(sanitizedProfiles);
+      setProxySaveStatus({ type: "success", message: t("settings.proxySaved") });
+    } catch (err) {
+      setProxySaveStatus({ type: "error", message: t("settings.proxySaveFailed") });
+    } finally {
+      setProxySaving(false);
+    }
+  };
+
+  const testProxyProfile = async (profile) => {
+    if (!profile?.id) return;
+
+    setProfileTestingId(profile.id);
+    setProfileTestStatus((prev) => ({ ...prev, [profile.id]: { type: "", message: "" } }));
+
+    try {
+      const res = await fetch("/api/settings/proxy/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxyProfile: profile }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        setProfileTestStatus((prev) => ({
+          ...prev,
+          [profile.id]: {
+            type: "success",
+            message: t("settings.proxyTestSuccess"),
+          },
+        }));
+      } else {
+        setProfileTestStatus((prev) => ({
+          ...prev,
+          [profile.id]: {
+            type: "error",
+            message: t("settings.proxyTestFailed", { error: data.error }),
+          },
+        }));
+      }
+    } catch (err) {
+      setProfileTestStatus((prev) => ({
+        ...prev,
+        [profile.id]: {
+          type: "error",
+          message: t("settings.proxyTestFailed", { error: err.message }),
+        },
+      }));
+    } finally {
+      setProfileTestingId("");
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="flex flex-col gap-6">
@@ -336,7 +621,7 @@ export default function ProfilePage() {
           </div>
         </Card>
 
-        {/* Proxy Settings (NEW) */}
+        {/* Proxy Settings */}
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-500">
@@ -348,14 +633,14 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="flex flex-col gap-4">
-            {/* All Proxy */}
+            {/* Global fallback proxy */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">{t("settings.allProxy")}</label>
-              <Input
-                type="text"
-                placeholder={t("settings.allProxyPlaceholder")}
+              <ProxyAddressField
+                t={t}
                 value={proxySettings.allProxy}
-                onChange={(e) => updateProxySetting("allProxy", e.target.value)}
+                onChange={(next) => updateProxySetting("allProxy", next)}
+                placeholder={t("settings.allProxyPlaceholder")}
                 disabled={loading}
               />
             </div>
@@ -363,11 +648,11 @@ export default function ProfilePage() {
             {/* HTTP Proxy */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">{t("settings.httpProxy")}</label>
-              <Input
-                type="text"
-                placeholder={t("settings.httpProxyPlaceholder")}
+              <ProxyAddressField
+                t={t}
                 value={proxySettings.httpProxy}
-                onChange={(e) => updateProxySetting("httpProxy", e.target.value)}
+                onChange={(next) => updateProxySetting("httpProxy", next)}
+                placeholder={t("settings.httpProxyPlaceholder")}
                 disabled={loading}
               />
             </div>
@@ -375,11 +660,11 @@ export default function ProfilePage() {
             {/* HTTPS Proxy */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">{t("settings.httpsProxy")}</label>
-              <Input
-                type="text"
-                placeholder={t("settings.httpsProxyPlaceholder")}
+              <ProxyAddressField
+                t={t}
                 value={proxySettings.httpsProxy}
-                onChange={(e) => updateProxySetting("httpsProxy", e.target.value)}
+                onChange={(next) => updateProxySetting("httpsProxy", next)}
+                placeholder={t("settings.httpsProxyPlaceholder")}
                 disabled={loading}
               />
             </div>
@@ -397,7 +682,6 @@ export default function ProfilePage() {
               <p className="text-xs text-text-muted">{t("settings.noProxyDesc")}</p>
             </div>
 
-            {/* Test Button */}
             <div className="flex items-center justify-between pt-2 border-t border-border/50">
               <p className="text-xs text-text-muted">
                 {(proxySettings.allProxy || proxySettings.httpProxy || proxySettings.httpsProxy)
@@ -415,10 +699,171 @@ export default function ProfilePage() {
               </Button>
             </div>
 
-            {/* Test Status */}
             {proxyTestStatus.message && (
               <p className={`text-sm ${proxyTestStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
                 {proxyTestStatus.message}
+              </p>
+            )}
+
+            {/* Multiple proxy profiles */}
+            <div className="pt-4 border-t border-border/50 flex items-center justify-between">
+              <div>
+                <p className="font-medium">{t("settings.proxyProfiles")}</p>
+                <p className="text-sm text-text-muted">{t("settings.proxyProfilesDesc")}</p>
+              </div>
+              <Button variant="secondary" onClick={addProxyProfile}>
+                <span className="material-symbols-outlined text-[18px] mr-1">add</span>
+                {t("settings.addProxy")}
+              </Button>
+            </div>
+
+            {proxyProfiles.length === 0 && (
+              <p className="text-sm text-text-muted">{t("settings.noProxyProfiles")}</p>
+            )}
+
+            {proxyProfiles.map((profile, index) => {
+              const address = getProxyProfileAddress(profile);
+              const status = profileTestStatus[profile.id] || { type: "", message: "" };
+              return (
+                <div key={profile.id} className="rounded-lg border border-border p-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <Input
+                      type="text"
+                      placeholder={t("settings.proxyNamePlaceholder", { index: index + 1 })}
+                      value={profile.name || ""}
+                      onChange={(e) => updateProxyProfileField(profile.id, "name", e.target.value)}
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="ghost"
+                      onClick={() => removeProxyProfile(profile.id)}
+                      className="text-red-500"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <ProxyAddressField
+                      t={t}
+                      value={profile.allProxy || ""}
+                      onChange={(next) => updateProxyProfileField(profile.id, "allProxy", next)}
+                      placeholder={t("settings.allProxyPlaceholder")}
+                    />
+                    <ProxyAddressField
+                      t={t}
+                      value={profile.httpProxy || ""}
+                      onChange={(next) => updateProxyProfileField(profile.id, "httpProxy", next)}
+                      placeholder={t("settings.httpProxyPlaceholder")}
+                    />
+                    <ProxyAddressField
+                      t={t}
+                      value={profile.httpsProxy || ""}
+                      onChange={(next) => updateProxyProfileField(profile.id, "httpsProxy", next)}
+                      placeholder={t("settings.httpsProxyPlaceholder")}
+                    />
+                    <Input
+                      type="text"
+                      placeholder={t("settings.noProxyPlaceholder")}
+                      value={profile.noProxy || ""}
+                      onChange={(e) => updateProxyProfileField(profile.id, "noProxy", e.target.value)}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/50">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-text-muted">{t("settings.proxyAddress")}:</span>
+                      {address ? (
+                        <code className="text-xs bg-sidebar px-2 py-1 rounded break-all">{address}</code>
+                      ) : (
+                        <span className="text-text-muted">{t("settings.proxyAddressEmpty")}</span>
+                      )}
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => testProxyProfile(profile)}
+                      loading={profileTestingId === profile.id}
+                      disabled={!profile.allProxy && !profile.httpProxy && !profile.httpsProxy}
+                    >
+                      {t("settings.testProxy")}
+                    </Button>
+                  </div>
+
+                  {status.message && (
+                    <p className={`text-sm ${status.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                      {status.message}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Per-provider binding */}
+            <div className="pt-4 border-t border-border/50 flex flex-col gap-3">
+              <div>
+                <p className="font-medium">{t("settings.providerProxyBinding")}</p>
+                <p className="text-sm text-text-muted">{t("settings.providerProxyBindingDesc")}</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto_auto] gap-2 items-center">
+                <select
+                  value={bulkProxyProfileId}
+                  onChange={(e) => setBulkProxyProfileId(e.target.value)}
+                  className="w-full py-2 px-3 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none"
+                >
+                  <option value="">{t("settings.selectProxyProfile")}</option>
+                  {proxyProfiles.map((profile, index) => (
+                    <option key={profile.id} value={profile.id}>
+                      {`${profile.name || `Proxy ${index + 1}`} (${getProxyProfileAddress(profile) || t("settings.proxyAddressEmpty")})`}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="secondary"
+                  onClick={applyProxyBindingToAllProviders}
+                  disabled={!bulkProxyProfileId || proxyProviders.length === 0}
+                >
+                  {t("settings.bindAllProviders")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={clearAllProviderProxyBindings}
+                  disabled={proxyProviders.length === 0 && Object.keys(providerProxyBindings).length === 0}
+                >
+                  {t("settings.clearAllBindings")}
+                </Button>
+              </div>
+              <p className="text-xs text-text-muted">{t("settings.bulkBindingDesc")}</p>
+              <div className="flex flex-col gap-2">
+                {proxyProviders.map((provider) => (
+                  <div key={provider.value} className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-3 items-center">
+                    <span className="text-sm">{provider.label}</span>
+                    <select
+                      value={providerProxyBindings[provider.value] || ""}
+                      onChange={(e) => updateProviderProxyBinding(provider.value, e.target.value)}
+                      className="w-full py-2 px-3 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none"
+                    >
+                      <option value="">{t("settings.useGlobalProxy")}</option>
+                      {proxyProfiles.map((profile, index) => (
+                        <option key={profile.id} value={profile.id}>
+                          {`${profile.name || `Proxy ${index + 1}`} (${getProxyProfileAddress(profile) || t("settings.proxyAddressEmpty")})`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-border/50">
+              <p className="text-xs text-text-muted">{t("settings.proxyBindingHint")}</p>
+              <Button variant="primary" onClick={saveAdvancedProxySettings} loading={proxySaving}>
+                {t("settings.saveProxyConfig")}
+              </Button>
+            </div>
+
+            {proxySaveStatus.message && (
+              <p className={`text-sm ${proxySaveStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+                {proxySaveStatus.message}
               </p>
             )}
           </div>
