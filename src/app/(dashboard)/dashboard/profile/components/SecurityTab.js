@@ -112,3 +112,10 @@ export default function SecurityTab({
     </div>
   );
 }
+
+SecurityTab.propTypes = {
+  settings: PropTypes.object.isRequired,
+  loading: PropTypes.bool,
+  onUpdateRequireLogin: PropTypes.func.isRequired,
+  onPasswordChange: PropTypes.func.isRequired,
+};

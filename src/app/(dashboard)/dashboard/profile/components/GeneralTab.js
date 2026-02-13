@@ -1,7 +1,7 @@
 "use client";
 
 import PropTypes from "prop-types";
-import { Card, Toggle, Input } from "@/shared/components";
+import { Card, Toggle } from "@/shared/components";
 import { useI18n } from "@/shared/i18n";
 
 export default function GeneralTab({
@@ -52,6 +52,31 @@ export default function GeneralTab({
             disabled={loading}
           />
         </div>
+
+        {/* Sticky Round Robin Limit */}
+        {settings.fallbackStrategy === "round-robin" && (
+          <div className="flex items-center justify-between pt-2 border-t border-border/50">
+            <div>
+              <p className="font-medium">{t("settings.stickyLimit")}</p>
+              <p className="text-sm text-text-muted">{t("settings.stickyLimitDesc")}</p>
+            </div>
+            <input
+              type="number"
+              min="1"
+              max="10"
+              value={settings.stickyRoundRobinLimit || 3}
+              onChange={(e) => onUpdateStickyLimit(e.target.value)}
+              disabled={loading}
+              className="w-20 text-center py-2 px-3 text-sm text-text-main bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none"
+            />
+          </div>
+        )}
+
+        <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
+          {settings.fallbackStrategy === "round-robin"
+            ? `${t("settings.fillFirstDesc")} - ${settings.stickyRoundRobinLimit || 3} ${t("settings.stickyLimitDesc")}`
+            : t("settings.fillFirstDesc")}
+        </p>
       </Card>
 
       {/* Data Management */}
@@ -75,3 +100,10 @@ export default function GeneralTab({
     </div>
   );
 }
+
+GeneralTab.propTypes = {
+  settings: PropTypes.object.isRequired,
+  loading: PropTypes.bool,
+  onUpdateFallbackStrategy: PropTypes.func.isRequired,
+  onUpdateStickyLimit: PropTypes.func.isRequired,
+};
