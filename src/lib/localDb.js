@@ -42,7 +42,9 @@ const defaultData = {
     httpProxy: "",
     httpsProxy: "",
     allProxy: "",
-    noProxy: ""
+    noProxy: "",
+    proxyProfiles: [],
+    providerProxyBindings: {}
   },
   pricing: {} // NEW: pricing configuration
 };
@@ -67,7 +69,9 @@ function cloneDefaultData() {
       httpProxy: "",
       httpsProxy: "",
       allProxy: "",
-      noProxy: ""
+      noProxy: "",
+      proxyProfiles: [],
+      providerProxyBindings: {}
     },
     pricing: {},
   };

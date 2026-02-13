@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getProviderNodeById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { getSettings } from "@/lib/localDb";
+import { getProxyConfigForProvider } from "@/lib/proxy/settings";
+import { runWithProxyContext } from "@/lib/proxy/context";
+import "@/lib/proxy/fetchPatch";
 
 // POST /api/providers/validate - Validate API key with provider
 export async function POST(request) {
@@ -11,32 +15,35 @@ export async function POST(request) {
     if (!provider || !apiKey) {
       return NextResponse.json({ error: "Provider and API key required" }, { status: 400 });
     }
+    const settings = await getSettings();
+    const providerProxy = getProxyConfigForProvider(provider, settings);
 
     let isValid = false;
     let error = null;
+    let earlyResponse = null;
 
     // Validate with each provider
     try {
+      await runWithProxyContext(providerProxy, async () => {
       if (isOpenAICompatibleProvider(provider)) {
         const node = await getProviderNodeById(provider);
         if (!node) {
-          return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
+          earlyResponse = NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
+          return;
         }
         const modelsUrl = `${node.baseUrl?.replace(/\/$/, "")}/models`;
         const res = await fetch(modelsUrl, {
           headers: { "Authorization": `Bearer ${apiKey}` },
         });
         isValid = res.ok;
-        return NextResponse.json({
-          valid: isValid,
-          error: isValid ? null : "Invalid API key",
-        });
+        return;
       }
 
       if (isAnthropicCompatibleProvider(provider)) {
         const node = await getProviderNodeById(provider);
         if (!node) {
-          return NextResponse.json({ error: "Anthropic Compatible node not found" }, { status: 404 });
+          earlyResponse = NextResponse.json({ error: "Anthropic Compatible node not found" }, { status: 404 });
+          return;
         }
         
         let normalizedBase = node.baseUrl?.trim().replace(/\/$/, "") || "";
@@ -55,10 +62,7 @@ export async function POST(request) {
         });
         
         isValid = res.ok;
-        return NextResponse.json({
-          valid: isValid,
-          error: isValid ? null : "Invalid API key",
-        });
+        return;
       }
 
       switch (provider) {
@@ -146,11 +150,17 @@ export async function POST(request) {
         }
 
           default:
-            return NextResponse.json({ error: "Provider validation not supported" }, { status: 400 });
+            earlyResponse = NextResponse.json({ error: "Provider validation not supported" }, { status: 400 });
+            return;
       }
+      });
     } catch (err) {
       error = err.message;
       isValid = false;
+    }
+
+    if (earlyResponse) {
+      return earlyResponse;
     }
 
     return NextResponse.json({

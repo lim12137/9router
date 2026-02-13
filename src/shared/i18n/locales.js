@@ -162,6 +162,7 @@ export const en = {
     httpProxyPlaceholder: "http://proxy.example.com:8080",
     httpsProxyPlaceholder: "https://proxy.example.com:8080",
     allProxyPlaceholder: "socks5://proxy.example.com:1080",
+    proxyProtocolManual: "Manual",
     noProxyPlaceholder: "localhost,127.0.0.1,*.local",
     noProxyDesc: "Comma-separated list of hosts to bypass proxy",
     testProxy: "Test Proxy",
@@ -169,6 +170,24 @@ export const en = {
     proxyTestFailed: "Proxy connection failed: {error}",
     proxyEnabled: "Proxy enabled",
     proxyDisabled: "Proxy disabled",
+    proxyProfiles: "Proxy Profiles",
+    proxyProfilesDesc: "Create multiple proxy entries and bind them to different providers.",
+    addProxy: "Add Proxy",
+    noProxyProfiles: "No proxy profiles yet. Add one to enable per-provider proxy routing.",
+    proxyNamePlaceholder: "Proxy {index}",
+    proxyAddress: "Address",
+    proxyAddressEmpty: "Not configured",
+    providerProxyBinding: "Provider Proxy Binding",
+    providerProxyBindingDesc: "Choose which proxy profile each provider should use.",
+    useGlobalProxy: "Use global fallback",
+    selectProxyProfile: "Select a proxy profile",
+    bindAllProviders: "Bind All Providers",
+    clearAllBindings: "Clear All Bindings",
+    bulkBindingDesc: "Select one profile to quickly apply to all listed providers, or clear all existing bindings.",
+    proxyBindingHint: "These bindings apply to provider requests, token refresh, and model fetch operations.",
+    saveProxyConfig: "Save Proxy Config",
+    proxySaved: "Proxy settings saved",
+    proxySaveFailed: "Failed to save proxy settings",
 
     // Appearance
     appearance: "Appearance",
@@ -192,6 +211,15 @@ export const en = {
     flushIntervalDesc: "Maximum time to wait before flushing buffer (prevents data loss during low traffic)",
     maxJsonSize: "Max JSON Size (KB)",
     maxJsonSizeDesc: "Maximum size for each JSON field (request/response) before truncation",
+
+    // Tabs
+    tabs: {
+      general: "General",
+      security: "Security",
+      proxy: "Proxy",
+      appearance: "Appearance",
+      advanced: "Advanced",
+    },
   },
 
   // Errors
@@ -785,6 +813,7 @@ export const zh = {
     httpProxyPlaceholder: "http://proxy.example.com:8080",
     httpsProxyPlaceholder: "https://proxy.example.com:8080",
     allProxyPlaceholder: "socks5://proxy.example.com:1080",
+    proxyProtocolManual: "手动输入",
     noProxyPlaceholder: "localhost,127.0.0.1,*.local",
     noProxyDesc: "逗号分隔的不使用代理的主机列表",
     testProxy: "测试代理",
@@ -792,6 +821,24 @@ export const zh = {
     proxyTestFailed: "代理连接失败：{error}",
     proxyEnabled: "代理已启用",
     proxyDisabled: "代理已禁用",
+    proxyProfiles: "代理列表",
+    proxyProfilesDesc: "可添加多条代理，并按提供商分别绑定。",
+    addProxy: "添加代理",
+    noProxyProfiles: "暂无代理条目，添加后可为不同提供商单独配置。",
+    proxyNamePlaceholder: "代理 {index}",
+    proxyAddress: "地址",
+    proxyAddressEmpty: "未配置",
+    providerProxyBinding: "提供商代理绑定",
+    providerProxyBindingDesc: "为每个提供商选择要使用的代理条目。",
+    useGlobalProxy: "使用全局兜底代理",
+    selectProxyProfile: "选择代理条目",
+    bindAllProviders: "全部绑定",
+    clearAllBindings: "清空全部绑定",
+    bulkBindingDesc: "选择一个代理条目可快速应用到当前列表中的所有提供商，也可一键清空全部绑定。",
+    proxyBindingHint: "绑定将用于请求转发、Token 刷新和模型拉取。",
+    saveProxyConfig: "保存代理配置",
+    proxySaved: "代理配置已保存",
+    proxySaveFailed: "保存代理配置失败",
 
     // 外观
     appearance: "外观",
@@ -815,6 +862,15 @@ export const zh = {
     flushIntervalDesc: "刷新缓冲区前的最大等待时间（防止低流量期间数据丢失）",
     maxJsonSize: "最大 JSON 大小（KB）",
     maxJsonSizeDesc: "每个 JSON 字段（请求/响应）截断前的最大大小",
+
+    // 标签
+    tabs: {
+      general: "通用",
+      security: "安全",
+      proxy: "代理",
+      appearance: "外观",
+      advanced: "高级",
+    },
   },
 
   // 错误

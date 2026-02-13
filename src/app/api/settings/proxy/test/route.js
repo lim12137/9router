@@ -12,13 +12,30 @@ function resolveProxyUrl(targetUrl, { httpProxy, httpsProxy, allProxy }) {
   return (httpProxy || httpsProxy || "").trim() || null;
 }
 
+function normalizeSocksAlias(proxyUrl) {
+  if (!proxyUrl) return proxyUrl;
+  const trimmed = proxyUrl.trim();
+  return trimmed
+    .replace(/^sock5:\/\//i, "socks5://")
+    .replace(/^sock4a:\/\//i, "socks4a://")
+    .replace(/^sock4:\/\//i, "socks4://")
+    .replace(/^sock:\/\//i, "socks://");
+}
+
 function createProxyAgent(proxyUrl) {
   if (!proxyUrl) return null;
-  const lower = proxyUrl.toLowerCase();
-  if (lower.startsWith("socks://") || lower.startsWith("socks4://") || lower.startsWith("socks5://")) {
-    return new SocksProxyAgent(proxyUrl);
+  const normalized = normalizeSocksAlias(proxyUrl);
+  const lower = normalized.toLowerCase();
+  if (
+    lower.startsWith("socks://") ||
+    lower.startsWith("socks4://") ||
+    lower.startsWith("socks4a://") ||
+    lower.startsWith("socks5://") ||
+    lower.startsWith("socks5h://")
+  ) {
+    return new SocksProxyAgent(normalized);
   }
-  return new HttpsProxyAgent(proxyUrl);
+  return new HttpsProxyAgent(normalized);
 }
 
 function requestHead(url, agent, timeoutMs = 10000) {
@@ -61,19 +78,10 @@ function requestHead(url, agent, timeoutMs = 10000) {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { httpProxy, httpsProxy, allProxy, noProxy, testUrl } = body;
-
-    // Set proxy environment variables for this test
-    if (httpProxy) process.env.HTTP_PROXY = httpProxy;
-    if (httpsProxy) process.env.HTTPS_PROXY = httpsProxy;
-    if (allProxy) process.env.ALL_PROXY = allProxy;
-    if (noProxy) process.env.NO_PROXY = noProxy;
-
-    // Clear any previous proxy settings
-    if (!httpProxy) delete process.env.HTTP_PROXY;
-    if (!httpsProxy) delete process.env.HTTPS_PROXY;
-    if (!allProxy) delete process.env.ALL_PROXY;
-    if (!noProxy) delete process.env.NO_PROXY;
+    const profile = body?.proxyProfile && typeof body.proxyProfile === "object"
+      ? body.proxyProfile
+      : body;
+    const { httpProxy, httpsProxy, allProxy, noProxy, testUrl } = profile || {};
 
     // Test URL (default to a reliable endpoint)
     const url = testUrl || "https://www.google.com";
@@ -88,24 +96,27 @@ export async function POST(request) {
           message: "Proxy connection successful",
           statusCode: status,
           usedProxy: !!proxyUrl,
+          proxyUrl: proxyUrl || null,
+          noProxy: noProxy || "",
         });
       } else {
-        return NextResponse.json(
-          { success: false, error: `HTTP ${status}`, usedProxy: !!proxyUrl },
-          { status: 400 }
-        );
+        return NextResponse.json({
+          success: false,
+          error: `HTTP ${status}`,
+          usedProxy: !!proxyUrl,
+          proxyUrl: proxyUrl || null,
+        });
       }
     } catch (error) {
-      return NextResponse.json(
-        { success: false, error: error.message, usedProxy: !!proxyUrl },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: false,
+        error: error.message,
+        usedProxy: !!proxyUrl,
+        proxyUrl: proxyUrl || null,
+      });
     }
   } catch (error) {
     console.error("Proxy test error:", error);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: error.message });
   }
 }

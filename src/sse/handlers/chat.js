@@ -16,6 +16,10 @@ import { handleComboChat } from "open-sse/services/combo.js";
 import { HTTP_STATUS } from "open-sse/config/constants.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
+import { getSettings } from "@/lib/localDb";
+import { getProxyConfigForProvider } from "@/lib/proxy/settings";
+import { runWithProxyContext } from "@/lib/proxy/context";
+import "@/lib/proxy/fetchPatch";
 
 /**
  * Handle chat completion request
@@ -107,6 +111,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   }
 
   const { provider, model } = modelInfo;
+  const settings = await getSettings();
+  const providerProxy = getProxyConfigForProvider(provider, settings);
 
   // Log model routing (alias → actual model)
   if (modelStr !== `${provider}/${model}`) {
@@ -156,34 +162,39 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const accountId = credentials.connectionId.slice(0, 8);
     log.info("AUTH", `Using ${provider} account: ${accountId}...`);
 
-    const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    const refreshedCredentials = await runWithProxyContext(
+      providerProxy,
+      () => checkAndRefreshToken(provider, credentials)
+    );
     
     // Use shared chatCore
-    const result = await handleChatCore({
-      body: { ...body, model: `${provider}/${model}` },
-      modelInfo: { provider, model },
-      credentials: refreshedCredentials,
-      log,
-      clientRawRequest,
-      connectionId: credentials.connectionId,
-      userAgent,
-      apiKey,
-      onCredentialsRefreshed: async (newCreds) => {
-        await updateProviderCredentials(credentials.connectionId, {
-          accessToken: newCreds.accessToken,
-          refreshToken: newCreds.refreshToken,
-          providerSpecificData: newCreds.providerSpecificData,
-          testStatus: "active"
-        });
-      },
-      onRequestSuccess: async () => {
-        await clearAccountError(credentials.connectionId, credentials);
-        // Bind session to account on success (if not from sticky session)
-        if (sessionRequest && !credentials.fromStickySession) {
-          await bindSession(provider, sessionRequest, credentials.connectionId);
+    const result = await runWithProxyContext(providerProxy, () =>
+      handleChatCore({
+        body: { ...body, model: `${provider}/${model}` },
+        modelInfo: { provider, model },
+        credentials: refreshedCredentials,
+        log,
+        clientRawRequest,
+        connectionId: credentials.connectionId,
+        userAgent,
+        apiKey,
+        onCredentialsRefreshed: async (newCreds) => {
+          await updateProviderCredentials(credentials.connectionId, {
+            accessToken: newCreds.accessToken,
+            refreshToken: newCreds.refreshToken,
+            providerSpecificData: newCreds.providerSpecificData,
+            testStatus: "active"
+          });
+        },
+        onRequestSuccess: async () => {
+          await clearAccountError(credentials.connectionId, credentials);
+          // Bind session to account on success (if not from sticky session)
+          if (sessionRequest && !credentials.fromStickySession) {
+            await bindSession(provider, sessionRequest, credentials.connectionId);
+          }
         }
-      }
-    });
+      })
+    );
     
     if (result.success) {
       // Reset retry count on success
