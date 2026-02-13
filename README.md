@@ -294,7 +294,7 @@ Monthly cost: $20-200 (subscriptions) + $10-20 (backup)
 ```
 Combo: "openclaw-free"
   1. if/glm-4.7                (unlimited free)
-  2. if/minimax-m2.1           (unlimited free)
+  2. if/minimax-m2.5           (unlimited free)
   3. if/kimi-k2-thinking       (unlimited free)
 
 Monthly cost: $0
@@ -415,7 +415,7 @@ Models:
   if/kimi-k2-thinking
   if/qwen3-coder-plus
   if/glm-4.7
-  if/minimax-m2
+  if/minimax-m2.5
   if/deepseek-r1
 ```
 

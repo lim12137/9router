@@ -213,12 +213,13 @@ export const en = {
     maxJsonSizeDesc: "Maximum size for each JSON field (request/response) before truncation",
 
     // Tabs
+    // Tabs
     tabs: {
-      general: "General",
-      security: "Security",
-      proxy: "Proxy",
-      appearance: "Appearance",
-      advanced: "Advanced",
+      general: "通用",
+      security: "安全",
+      proxy: "代理",
+      appearance: "外观",
+      advanced: "高级",
     },
   },
 

@@ -62,56 +62,63 @@ export default function SecurityTab({
             />
           </div>
         </div>
-        </Card>
-
-        {settings.requireLogin === true && (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-4 border-t border-border/50">
-            {settings.hasPassword && (
-              <Input
-                label={t("settings.currentPassword")}
-                type="password"
-                placeholder="•••••••••"
-                value={passwords.current}
-                onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
-                required
-              />
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label={t("settings.newPassword")}
-                type="password"
-                placeholder="••••••••"
-                value={passwords.new}
-                onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
-                required
-              />
-              <Input
-                label={t("settings.confirmNewPassword")}
-                type="password"
-                placeholder={t("settings.confirmNewPassword")}
-                value={passwords.confirm}
-                onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
-                required
-              />
-            </div>
-
-            {passStatus.message && (
-              <p className={`text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
-                {passStatus.message}
-              </p>
-            )}
-
-            <div className="pt-2">
-              <Button type="submit" variant="primary" loading={passLoading}>
-                {settings.hasPassword ? t("settings.updatePassword") : t("settings.setPassword")}
-              </Button>
-            </div>
-          </form>
-        )}
       </Card>
+
+      {settings.requireLogin === true && (
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-4 border-t border-border/50">
+          {settings.hasPassword && (
+            <Input
+              label={t("settings.currentPassword")}
+              type="password"
+              placeholder="•••••••••"
+              value={passwords.current}
+              onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
+              required
+            />
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Input
+              label={t("settings.newPassword")}
+              type="password"
+              placeholder="••••••••"
+              value={passwords.new}
+              onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+              required
+            />
+            <Input
+              label={t("settings.confirmNewPassword")}
+              type="password"
+              placeholder={t("settings.confirmNewPassword")}
+              value={passwords.confirm}
+              onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+              required
+            />
+          </div>
+
+          {passStatus.message && (
+            <p className={`text-sm ${passStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
+              {passStatus.message}
+            </p>
+          )}
+
+          <div className="pt-2">
+            <Button type="submit" variant="primary" loading={passLoading}>
+              {settings.hasPassword ? t("settings.updatePassword") : t("settings.setPassword")}
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }
+
+SecurityTab.propTypes = {
+  settings: PropTypes.object.isRequired,
+  loading: PropTypes.bool,
+  onUpdateRequireLogin: PropTypes.func.isRequired,
+  onPasswordChange: PropTypes.func.isRequired,
+};
+
 
 SecurityTab.propTypes = {
   settings: PropTypes.object.isRequired,

@@ -198,7 +198,14 @@ export const DEFAULT_PRICING = {
       reasoning: 4.50,
       cache_creation: 0.75
     },
-    "minimax-m2": {
+    "minimax-m2.1": {
+      input: 0.50,
+      output: 2.00,
+      cached: 0.25,
+      reasoning: 3.00,
+      cache_creation: 0.50
+    },
+    "minimax-m2.5": {
       input: 0.50,
       output: 2.00,
       cached: 0.25,
