@@ -171,18 +171,18 @@ function ProxyProfileCard({ profile, index, onUpdateField, onRemove, onTest, tes
 }
 
 export default function ProxyTab({
-  proxySettings,
-  proxyProfiles,
-  providerProxyBindings,
-  proxyProviders,
-  loading,
-  onUpdateProxySetting,
-  onTestProxy,
-  onAddProxyProfile,
-  onRemoveProxyProfile,
-  onUpdateProxyProfileField,
-  onUpdateProviderProxyBinding,
-  onSaveAdvancedProxySettings,
+  proxySettings = {},
+  proxyProfiles = [],
+  providerProxyBindings = {},
+  proxyProviders = [],
+  loading = false,
+  onUpdateProxySetting = () => {},
+  onTestProxy = async () => {},
+  onAddProxyProfile = () => {},
+  onRemoveProxyProfile = () => {},
+  onUpdateProxyProfileField = () => {},
+  onUpdateProviderProxyBinding = () => {},
+  onSaveAdvancedProxySettings = async () => {},
 }) {
   const { t } = useI18n();
   const [proxyTestLoading, setProxyTestLoading] = useState(false);
@@ -222,8 +222,7 @@ export default function ProxyTab({
   const handleSave = async () => {
     setProxySaving(true);
     setProxySaveStatus({ type: "", message: "" });
-    const result = await onSaveAdvancedProxySettings();
-    setProxySaveStatus(result);
+    await onSaveAdvancedProxySettings();
     setProxySaving(false);
   };
 
@@ -314,7 +313,7 @@ export default function ProxyTab({
           </Button>
         </div>
 
-        {proxyProfiles.length === 0 ? (
+        {(!proxyProfiles || proxyProfiles.length === 0) ? (
           <p className="text-sm text-text-muted text-center py-4">{t("settings.noProxyProfiles")}</p>
         ) : (
           <div className="flex flex-col gap-3">
@@ -335,7 +334,7 @@ export default function ProxyTab({
       </Card>
 
       {/* 第三段：提供商绑定 */}
-      {proxyProfiles.length > 0 && (
+      {proxyProfiles && proxyProfiles.length > 0 && (
         <Card>
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
@@ -386,7 +385,7 @@ export default function ProxyTab({
             </Button>
           </div>
 
-          {proxySaveStatus.message && (
+          {proxySaveStatus?.message && (
             <p className={`text-sm mt-2 ${proxySaveStatus.type === "error" ? "text-red-500" : "text-green-500"}`}>
               {proxySaveStatus.message}
             </p>
