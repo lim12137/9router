@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, Button, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
 import { useI18n } from "@/shared/i18n";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { SettingsTabs, GeneralTab, SecurityTab, ProxyTab, AppearanceTab, AdvancedTab } from "./components";
+
+const TABS = ["general", "security", "proxy", "appearance", "advanced"];
 
 const PROXY_PROTOCOL_OPTIONS = [
   { value: "http://", label: "HTTP" },
@@ -105,13 +109,17 @@ function getProxyProfileAddress(profile) {
 }
 
 export default function ProfilePage() {
-  const { theme, setTheme, isDark } = useTheme();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { t } = useI18n();
+  const { theme, setTheme, isDark } = useTheme();
+
+  const tabParam = searchParams.get("tab");
+  const initialTab = TABS.includes(tabParam) ? tabParam : "general";
+  const [activeTab, setActiveTab] = useState(initialTab);
+
   const [settings, setSettings] = useState({ fallbackStrategy: "fill-first" });
   const [loading, setLoading] = useState(true);
-  const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
-  const [passStatus, setPassStatus] = useState({ type: "", message: "" });
-  const [passLoading, setPassLoading] = useState(false);
 
   // Proxy settings state
   const [proxySettings, setProxySettings] = useState({
@@ -123,13 +131,6 @@ export default function ProfilePage() {
   const [proxyProfiles, setProxyProfiles] = useState([]);
   const [providerProxyBindings, setProviderProxyBindings] = useState({});
   const [proxyProviders, setProxyProviders] = useState([]);
-  const [bulkProxyProfileId, setBulkProxyProfileId] = useState("");
-  const [proxySaving, setProxySaving] = useState(false);
-  const [proxySaveStatus, setProxySaveStatus] = useState({ type: "", message: "" });
-  const [profileTestStatus, setProfileTestStatus] = useState({});
-  const [profileTestingId, setProfileTestingId] = useState("");
-  const [proxyTestStatus, setProxyTestStatus] = useState({ type: "", message: "" });
-  const [proxyTestLoading, setProxyTestLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -155,15 +156,9 @@ export default function ProfilePage() {
           value: node.id,
           label: node.name || node.id,
         }));
-        const fromBindings = Object.keys(data.providerProxyBindings || {})
-          .filter((providerId) => providerId !== "*")
-          .map((providerId) => ({
-            value: providerId,
-            label: providerId,
-          }));
 
         const providerMap = new Map();
-        [...builtins, ...customNodes, ...fromBindings].forEach((item) => {
+        [...builtins, ...customNodes].forEach((item) => {
           if (item?.value && !providerMap.has(item.value)) {
             providerMap.set(item.value, item);
           }
@@ -181,6 +176,12 @@ export default function ProfilePage() {
         setLoading(false);
       });
   }, []);
+
+  // Handle tab change with URL update
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    router.push(`/dashboard/profile?tab=${tab}`, { scroll: false });
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
