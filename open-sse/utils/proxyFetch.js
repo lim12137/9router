@@ -72,10 +72,11 @@ async function getProxyConfig(targetUrl) {
  */
 function isProxyHealthy(proxyUrl) {
   const cached = getCachedProxyStatus(proxyUrl);
-  if (cached) {
-    return cached.status === 'available' || cached.status === 'good' || cached.status === 'excellent';
+  // No cache means "unknown" - allow a real request instead of failing closed.
+  if (!cached) {
+    return true;
   }
-  return false;
+  return cached.status === 'available' || cached.status === 'good' || cached.status === 'excellent';
 }
 
 /**
