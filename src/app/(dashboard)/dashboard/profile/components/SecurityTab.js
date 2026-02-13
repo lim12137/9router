@@ -118,11 +118,3 @@ SecurityTab.propTypes = {
   onUpdateRequireLogin: PropTypes.func.isRequired,
   onPasswordChange: PropTypes.func.isRequired,
 };
-
-
-SecurityTab.propTypes = {
-  settings: PropTypes.object.isRequired,
-  loading: PropTypes.bool,
-  onUpdateRequireLogin: PropTypes.func.isRequired,
-  onPasswordChange: PropTypes.func.isRequired,
-};
