@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap&text=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -72,8 +71,8 @@
   --shadow-warm: var(--shadow-warm);
   --shadow-elevated: var(--shadow-elevated);
   
-  /* Font - macOS system fonts */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
+  /* Font - CN-friendly system stack */
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, system-ui, sans-serif;
 }
 
 /* Base styles */
