@@ -17,13 +17,8 @@ async function getObservabilityConfig() {
   try {
     const { getSettings } = await import("@/lib/localDb");
     const settings = await getSettings();
-    const envEnabled = process.env.OBSERVABILITY_ENABLED !== "false";
-    const enabled = typeof settings.observabilityEnabled === "boolean"
-      ? settings.observabilityEnabled
-      : envEnabled;
 
     return {
-      enabled,
       maxRecords: settings.observabilityMaxRecords || parseInt(process.env.OBSERVABILITY_MAX_RECORDS || '1000', 10),
       batchSize: settings.observabilityBatchSize || parseInt(process.env.OBSERVABILITY_BATCH_SIZE || '20', 10),
       flushIntervalMs: settings.observabilityFlushIntervalMs || parseInt(process.env.OBSERVABILITY_FLUSH_INTERVAL_MS || '5000', 10),
@@ -32,7 +27,6 @@ async function getObservabilityConfig() {
   } catch (error) {
     console.error("[requestDetailsDb] Failed to load observability config:", error);
     return {
-      enabled: true,
       maxRecords: 1000,
       batchSize: 20,
       flushIntervalMs: 5000,
@@ -43,24 +37,8 @@ async function getObservabilityConfig() {
 
 // Cache config to avoid repeated database reads
 let cachedConfig = null;
-let cachedConfigTs = 0;
-const CONFIG_CACHE_TTL_MS = 5000;
-
-async function getCachedObservabilityConfig() {
-  if (!cachedConfig || (Date.now() - cachedConfigTs) > CONFIG_CACHE_TTL_MS) {
-    cachedConfig = await getObservabilityConfig();
-    cachedConfigTs = Date.now();
-  }
-
-  return cachedConfig;
-}
 
 let dbInstance = null;
-
-// Get app name
-function getAppName() {
-  return "9router";
-}
 
 // Get user data directory based on platform
 function getUserDataDir() {
@@ -68,9 +46,7 @@ function getUserDataDir() {
 
   try {
     const homeDir = os.homedir();
-    const appName = getAppName();
-    // Use ~/.{appName} as cross-platform default to avoid Windows APPDATA trace issues during Next build.
-    return path.join(homeDir, `.${appName}`);
+    return path.join(homeDir, ".9router");
   } catch (error) {
     console.error("[requestDetailsDb] Failed to get user data directory:", error.message);
     return path.join(process.cwd(), ".9router");
@@ -329,14 +305,13 @@ function sanitizeHeaders(headers) {
 export async function saveRequestDetail(detail) {
   if (isCloud) return;
 
-  const config = await getCachedObservabilityConfig();
-  if (!config.enabled) {
-    return;
+  if (!cachedConfig) {
+    cachedConfig = await getObservabilityConfig();
   }
 
   writeBuffer.push(detail);
 
-  if (writeBuffer.length >= config.batchSize) {
+  if (writeBuffer.length >= cachedConfig.batchSize) {
     await flushToDatabase();
 
     if (flushTimer) {
@@ -347,7 +322,7 @@ export async function saveRequestDetail(detail) {
     flushTimer = setTimeout(() => {
       flushToDatabase().catch(() => {});
       flushTimer = null;
-    }, config.flushIntervalMs);
+    }, cachedConfig.flushIntervalMs);
   }
 }
 

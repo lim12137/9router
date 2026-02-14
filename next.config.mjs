@@ -1,15 +1,18 @@
 /** @type {import('next').NextConfig} */
-const isWindows = process.platform === "win32";
-
 const nextConfig = {
-  // Next.js file tracing may hit protected profile folders on Windows
-  // (EPERM scandir under AppData). Keep standalone for non-Windows builds.
-  ...(isWindows ? {} : { output: "standalone" }),
+  output: "standalone",
+  distDir: ".next",
   images: {
     unoptimized: true
   },
   env: {
     NEXT_PUBLIC_CLOUD_URL: "https://9router.com",
+  },
+  // Configure Server Actions request body size limit.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
   },
   webpack: (config, { isServer }) => {
     // Ignore fs/path modules in browser bundle
@@ -20,7 +23,16 @@ const nextConfig = {
         path: false,
       };
     }
+    // Reduce webpack infrastructure log noise.
+    config.infrastructureLogging = {
+      level: 'error',
+    };
     return config;
+  },
+  // Exclude large directories from being watched/scanned
+  onDemandEntries: {
+    maxInactiveAge: 60 * 60 * 1000,
+    pagesBufferLength: 5,
   },
   async rewrites() {
     return [

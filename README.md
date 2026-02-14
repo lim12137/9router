@@ -46,20 +46,6 @@ docker run -d \
 
 > 注：本仓库仅提供本地构建和 Docker 部署，不发布 npm 包
 
-## 连接提供商
-
-在仪表盘（Dashboard）中：`Providers` → `Connect` → 完成 OAuth 登录
-
-## 使用方式
-
-在 CLI 工具中配置：
-
-```
-Endpoint: http://localhost:20128/v1
-API Key: [从仪表盘获取]
-Model: if/kimi-k2-thinking
-```
-
 ## 可用模型
 
 | 提供商 | 标识 | 模型示例 | 费用 |
@@ -97,6 +83,20 @@ Models:
 | `PORT` | `20128` | 服务端口 |
 | `REQUIRE_API_KEY` | `false` | 是否强制要求 API Key |
 | `HTTP_PROXY` | - | 上游请求代理 |
+
+## 连接提供商
+
+在仪表盘（Dashboard）中：`Providers` → `Connect` → 完成 OAuth 登录
+
+## 使用方式
+
+在 CLI 工具中配置：
+
+```
+Endpoint: http://localhost:20128/v1
+API Key: [从仪表盘获取]
+Model: if/kimi-k2-thinking
+```
 
 ## 文档
 

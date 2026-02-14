@@ -3,24 +3,8 @@ import { JSONFile } from "lowdb/node";
 import path from "path";
 import os from "os";
 import fs from "fs";
-import { fileURLToPath } from "url";
 
 const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
-
-// Get app name from root package.json config
-function getAppName() {
-  if (isCloud) return "9router"; // Skip file system access in Workers
-
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  // Look for root package.json (monorepo root)
-  const rootPkgPath = path.resolve(__dirname, "../../../package.json");
-  try {
-    const pkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf-8"));
-    return pkg.config?.appName || "9router";
-  } catch {
-    return "9router";
-  }
-}
 
 // Get user data directory based on platform
 function getUserDataDir() {
@@ -28,9 +12,9 @@ function getUserDataDir() {
 
   try {
     const homeDir = os.homedir();
-    const appName = getAppName();
-    // Use ~/.{appName} as cross-platform default to avoid Windows APPDATA trace issues during Next build.
-    return path.join(homeDir, `.${appName}`);
+    // Use a stable per-user dot directory on all platforms to avoid
+    // Windows Roaming scans during output file tracing.
+    return path.join(homeDir, ".9router");
   } catch (error) {
     console.error("[usageDb] Failed to get user data directory:", error.message);
     // Fallback to cwd if homedir fails

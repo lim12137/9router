@@ -9,6 +9,60 @@ import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthW
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { getProxyAddress, getProxyConfigForProvider } from "@/lib/proxy/settings";
+
+function resolveProviderProxyBinding(providerId, settings) {
+  if (!providerId || !settings || typeof settings !== "object") return null;
+
+  const profiles = Array.isArray(settings.proxyProfiles) ? settings.proxyProfiles : [];
+  const bindings = settings.providerProxyBindings && typeof settings.providerProxyBindings === "object"
+    ? settings.providerProxyBindings
+    : {};
+
+  const directProfileId = bindings[providerId] || "";
+  const defaultProfileId = directProfileId ? "" : (bindings["*"] || "");
+  const selectedProfileId = directProfileId || defaultProfileId;
+
+  if (selectedProfileId) {
+    const profile = profiles.find((item) => item?.id === selectedProfileId);
+    if (!profile) {
+      return {
+        mode: "missing",
+        source: directProfileId ? "provider" : "default",
+        label: selectedProfileId,
+        address: "",
+      };
+    }
+
+    return {
+      mode: "profile",
+      source: directProfileId ? "provider" : "default",
+      label: profile.name || selectedProfileId,
+      address: getProxyAddress(profile),
+    };
+  }
+
+  const legacyProxy = getProxyConfigForProvider(providerId, {
+    ...settings,
+    proxyProfiles: [],
+    providerProxyBindings: {},
+  });
+  if (legacyProxy) {
+    return {
+      mode: "global",
+      source: "global",
+      label: "Global fallback proxy",
+      address: getProxyAddress(legacyProxy),
+    };
+  }
+
+  return {
+    mode: "none",
+    source: "none",
+    label: "Direct connection",
+    address: "",
+  };
+}
 
 export default function ProviderDetailPage() {
   const params = useParams();
@@ -24,6 +78,7 @@ export default function ProviderDetailPage() {
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [modelAliases, setModelAliases] = useState({});
   const [headerImgError, setHeaderImgError] = useState(false);
+  const [proxyBindingView, setProxyBindingView] = useState(null);
   const { copied, copy } = useCopyToClipboard();
 
   const providerInfo = providerNode
@@ -65,12 +120,16 @@ export default function ProviderDetailPage() {
 
   const fetchConnections = useCallback(async () => {
     try {
-      const [connectionsRes, nodesRes] = await Promise.all([
+      const [connectionsRes, nodesRes, settingsRes] = await Promise.all([
         fetch("/api/providers", { cache: "no-store" }),
         fetch("/api/provider-nodes", { cache: "no-store" }),
+        fetch("/api/settings", { cache: "no-store" }),
       ]);
-      const connectionsData = await connectionsRes.json();
-      const nodesData = await nodesRes.json();
+      const [connectionsData, nodesData, settingsData] = await Promise.all([
+        connectionsRes.json(),
+        nodesRes.json(),
+        settingsRes.json(),
+      ]);
       if (connectionsRes.ok) {
         const filtered = (connectionsData.connections || []).filter(c => c.provider === providerId);
         setConnections(filtered);
@@ -92,6 +151,12 @@ export default function ProviderDetailPage() {
         }
 
         setProviderNode(node);
+      }
+
+      if (settingsRes.ok) {
+        setProxyBindingView(resolveProviderProxyBinding(providerId, settingsData));
+      } else {
+        setProxyBindingView(null);
       }
     } catch (error) {
       console.log("Error fetching connections:", error);
@@ -383,6 +448,45 @@ export default function ProviderDetailPage() {
           </div>
         </div>
       </div>
+
+      {proxyBindingView && (
+        <Card>
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div>
+              <h2 className="text-lg font-semibold">Proxy Routing</h2>
+              <p className="text-sm text-text-muted">
+                {proxyBindingView.mode === "profile" && `Using proxy profile ${proxyBindingView.label}${proxyBindingView.source === "default" ? " (default binding)" : ""}.`}
+                {proxyBindingView.mode === "global" && "Using legacy global fallback proxy."}
+                {proxyBindingView.mode === "missing" && `Bound profile ${proxyBindingView.label} was not found. Requests will fall back to direct connection.`}
+                {proxyBindingView.mode === "none" && "No proxy binding configured for this provider."}
+              </p>
+            </div>
+            <Badge
+              variant={
+                proxyBindingView.mode === "profile"
+                  ? "success"
+                  : proxyBindingView.mode === "global"
+                    ? "info"
+                    : proxyBindingView.mode === "missing"
+                      ? "warning"
+                      : "default"
+              }
+              size="sm"
+              dot
+            >
+              {proxyBindingView.mode === "profile" && "Bound"}
+              {proxyBindingView.mode === "global" && "Global"}
+              {proxyBindingView.mode === "missing" && "Missing"}
+              {proxyBindingView.mode === "none" && "Direct"}
+            </Badge>
+          </div>
+          {proxyBindingView.address && (
+            <code className="text-xs bg-sidebar px-2 py-1 rounded break-all inline-block">
+              {proxyBindingView.address}
+            </code>
+          )}
+        </Card>
+      )}
 
       {isCompatible && providerNode && (
         <Card>

@@ -1,52 +1,19 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings } from "@/lib/localDb";
-import { isAccountUnavailable, getUnavailableUntil, getEarliestRateLimitedUntil, formatRetryAfter, checkFallbackError } from "open-sse/services/accountFallback.js";
+import {
+  isAccountUnavailable,
+  getUnavailableUntil,
+  getEarliestRateLimitedUntil,
+  formatRetryAfter,
+  checkFallbackError,
+  filterAvailableAccounts,
+  TEMP_UNSCHEDULE_CONFIG,
+  getRetryBackoffDelay
+} from "open-sse/services/accountFallback.js";
+import { getSessionAccount, bindSessionToAccount, clearSessionBindings, generateSessionHash, parseSessionRequest } from "open-sse/services/stickySession.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
 let selectionMutex = Promise.resolve();
-const IFLOW_IDLE_ROTATE_MS = 30 * 60 * 1000;
-
-function toTimestamp(value) {
-  if (!value) return 0;
-  const ts = new Date(value).getTime();
-  return Number.isFinite(ts) ? ts : 0;
-}
-
-function sortByPriority(connections) {
-  return [...connections].sort((a, b) => (a.priority || 999) - (b.priority || 999));
-}
-
-function sortByRecency(connections) {
-  return [...connections].sort((a, b) => {
-    const aTs = toTimestamp(a.lastUsedAt);
-    const bTs = toTimestamp(b.lastUsedAt);
-    if (aTs === bTs) return (a.priority || 999) - (b.priority || 999);
-    return bTs - aTs;
-  });
-}
-
-function selectIflowConnection(connections, nowMs = Date.now()) {
-  const byPriority = sortByPriority(connections);
-  const byRecency = sortByRecency(connections);
-  const lastConnection = byRecency[0] || null;
-
-  if (!lastConnection || !toTimestamp(lastConnection.lastUsedAt)) {
-    return { connection: byPriority[0], rotated: false, stayedWithLast: false };
-  }
-
-  const idleMs = nowMs - toTimestamp(lastConnection.lastUsedAt);
-  const shouldRotate = idleMs > IFLOW_IDLE_ROTATE_MS;
-
-  if (!shouldRotate || byPriority.length === 1) {
-    return { connection: lastConnection, rotated: false, stayedWithLast: true };
-  }
-
-  const currentIdx = byPriority.findIndex(c => c.id === lastConnection.id);
-  const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % byPriority.length;
-  const nextConnection = byPriority[nextIdx] || byPriority[0];
-
-  return { connection: nextConnection, rotated: nextConnection.id !== lastConnection.id, stayedWithLast: false };
-}
 
 /**
  * Get provider credentials from localDb
@@ -86,11 +53,7 @@ export async function getProviderCredentials(provider, excludeConnectionId = nul
     }
 
     // Filter out unavailable accounts and excluded connection
-    const availableConnections = connections.filter(c => {
-      if (excludeConnectionId && c.id === excludeConnectionId) return false;
-      if (isAccountUnavailable(c.rateLimitedUntil)) return false;
-      return true;
-    });
+    const availableConnections = filterAvailableAccounts(connections, excludeConnectionId);
 
     log.debug("AUTH", `${provider} | available: ${availableConnections.length}/${connections.length}`);
     connections.forEach(c => {
@@ -120,63 +83,52 @@ export async function getProviderCredentials(provider, excludeConnectionId = nul
       return null;
     }
 
+    const settings = await getSettings();
+    const strategy = settings.fallbackStrategy || "fill-first";
+
     let connection;
-    if (provider === "iflow") {
-      const nowIso = new Date().toISOString();
-      const { connection: selected, rotated, stayedWithLast } = selectIflowConnection(availableConnections);
-      connection = selected || availableConnections[0];
-      await updateProviderConnection(connection.id, {
-        lastUsedAt: nowIso,
-        consecutiveUseCount: stayedWithLast ? (connection.consecutiveUseCount || 0) + 1 : 1
+    if (strategy === "round-robin") {
+      const stickyLimit = settings.stickyRoundRobinLimit || 3;
+
+      // Sort by lastUsed (most recent first) to find current candidate
+      const byRecency = [...availableConnections].sort((a, b) => {
+        if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
+        if (!a.lastUsedAt) return 1;
+        if (!b.lastUsedAt) return -1;
+        return new Date(b.lastUsedAt) - new Date(a.lastUsedAt);
       });
-      log.info("AUTH", `iflow | account selected=${connection.id?.slice(0, 8)} | rotated=${rotated}`);
-    } else {
-      const settings = await getSettings();
-      const strategy = settings.fallbackStrategy || "fill-first";
 
-      if (strategy === "round-robin") {
-        const stickyLimit = settings.stickyRoundRobinLimit || 3;
+      const current = byRecency[0];
+      const currentCount = current?.consecutiveUseCount || 0;
 
-        // Sort by lastUsed (most recent first) to find current candidate
-        const byRecency = [...availableConnections].sort((a, b) => {
+      if (current && current.lastUsedAt && currentCount < stickyLimit) {
+        // Stay with current account
+        connection = current;
+        // Update lastUsedAt and increment count (await to ensure persistence)
+        await updateProviderConnection(connection.id, {
+          lastUsedAt: new Date().toISOString(),
+          consecutiveUseCount: (connection.consecutiveUseCount || 0) + 1
+        });
+      } else {
+        // Pick the least recently used (excluding current if possible)
+        const sortedByOldest = [...availableConnections].sort((a, b) => {
           if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
-          if (!a.lastUsedAt) return 1;
-          if (!b.lastUsedAt) return -1;
-          return new Date(b.lastUsedAt) - new Date(a.lastUsedAt);
+          if (!a.lastUsedAt) return -1;
+          if (!b.lastUsedAt) return 1;
+          return new Date(a.lastUsedAt) - new Date(b.lastUsedAt);
         });
 
-        const current = byRecency[0];
-        const currentCount = current?.consecutiveUseCount || 0;
+        connection = sortedByOldest[0];
 
-        if (current && current.lastUsedAt && currentCount < stickyLimit) {
-          // Stay with current account
-          connection = current;
-          // Update lastUsedAt and increment count (await to ensure persistence)
-          await updateProviderConnection(connection.id, {
-            lastUsedAt: new Date().toISOString(),
-            consecutiveUseCount: (connection.consecutiveUseCount || 0) + 1
-          });
-        } else {
-          // Pick the least recently used (excluding current if possible)
-          const sortedByOldest = [...availableConnections].sort((a, b) => {
-            if (!a.lastUsedAt && !b.lastUsedAt) return (a.priority || 999) - (b.priority || 999);
-            if (!a.lastUsedAt) return -1;
-            if (!b.lastUsedAt) return 1;
-            return new Date(a.lastUsedAt) - new Date(b.lastUsedAt);
-          });
-
-          connection = sortedByOldest[0];
-
-          // Update lastUsedAt and reset count to 1 (await to ensure persistence)
-          await updateProviderConnection(connection.id, {
-            lastUsedAt: new Date().toISOString(),
-            consecutiveUseCount: 1
-          });
-        }
-      } else {
-        // Default: fill-first (already sorted by priority in getProviderConnections)
-        connection = availableConnections[0];
+        // Update lastUsedAt and reset count to 1 (await to ensure persistence)
+        await updateProviderConnection(connection.id, {
+          lastUsedAt: new Date().toISOString(),
+          consecutiveUseCount: 1
+        });
       }
+    } else {
+      // Default: fill-first (already sorted by priority in getProviderConnections)
+      connection = availableConnections[0];
     }
 
     return {
@@ -198,8 +150,76 @@ export async function getProviderCredentials(provider, excludeConnectionId = nul
 }
 
 /**
+ * Get provider credentials with sticky session support
+ * Returns account based on session binding if available
+ * @param {string} provider - Provider name
+ * @param {object|null} sessionRequest - Parsed session request
+ * @param {string|null} excludeConnectionId - Connection ID to exclude
+ */
+export async function getProviderCredentialsWithSession(provider, sessionRequest = null, excludeConnectionId = null) {
+  // If session info provided, check for existing binding
+  if (sessionRequest) {
+    const sessionHash = generateSessionHash(sessionRequest);
+    if (sessionHash) {
+      const boundAccountId = getSessionAccount(provider, sessionHash);
+      if (boundAccountId) {
+        // Check if bound account is still available
+        const connections = await getProviderConnections({ provider, isActive: true });
+        const boundAccount = connections.find(c => c.id === boundAccountId);
+
+        if (boundAccount && !isAccountUnavailable(boundAccount.rateLimitedUntil)) {
+          log.info("AUTH", `${provider} | sticky session hit: ${boundAccountId.slice(0, 8)}...`);
+          // Update lastUsedAt
+          await updateProviderConnection(boundAccount.id, {
+            lastUsedAt: new Date().toISOString()
+          });
+          return {
+            apiKey: boundAccount.apiKey,
+            accessToken: boundAccount.accessToken,
+            refreshToken: boundAccount.refreshToken,
+            projectId: boundAccount.projectId,
+            copilotToken: boundAccount.providerSpecificData?.copilotToken,
+            providerSpecificData: boundAccount.providerSpecificData,
+            connectionId: boundAccount.id,
+            testStatus: boundAccount.testStatus,
+            lastError: boundAccount.lastError,
+            rateLimitedUntil: boundAccount.rateLimitedUntil,
+            fromStickySession: true
+          };
+        } else {
+          // Bound account unavailable, clear binding
+          log.info("AUTH", `${provider} | clearing stale session binding`);
+          clearSessionBindings(provider, boundAccountId);
+        }
+      }
+    }
+  }
+
+  // Fallback to regular account selection
+  return getProviderCredentials(provider, excludeConnectionId);
+}
+
+/**
+ * Bind session to account after successful request
+ * @param {string} provider - Provider name
+ * @param {object} sessionRequest - Parsed session request
+ * @param {string} accountId - Account ID to bind
+ */
+export async function bindSession(provider, sessionRequest, accountId) {
+  if (!sessionRequest || !accountId) return;
+
+  const sessionHash = generateSessionHash(sessionRequest);
+  if (sessionHash) {
+    bindSessionToAccount(provider, sessionHash, accountId);
+    log.debug("AUTH", `${provider} | session bound to ${accountId.slice(0, 8)}...`);
+  }
+}
+
+/**
  * Mark account as unavailable — reads backoffLevel from DB, calculates cooldown with exponential backoff, saves new level
- * @returns {{ shouldFallback: boolean, cooldownMs: number }}
+ * Also clears all session bindings for this account
+ * Enhanced with temporary unschedule support for retryable errors
+ * @returns {{ shouldFallback: boolean, cooldownMs: number, isRetryable: boolean }}
  */
 export async function markAccountUnavailable(connectionId, status, errorText, provider = null) {
   // Read current connection to get backoffLevel
@@ -207,11 +227,36 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   const conn = connections.find(c => c.id === connectionId);
   const backoffLevel = conn?.backoffLevel || 0;
 
-  const { shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
-  if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
+  const { shouldFallback, cooldownMs, newBackoffLevel, isRetryable } = checkFallbackError(status, errorText, backoffLevel);
+  if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0, isRetryable: true };
 
-  const rateLimitedUntil = getUnavailableUntil(cooldownMs);
   const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
+
+  // If retryable, apply temporary unschedule instead of permanent cooldown
+  if (isRetryable) {
+    const tempUnschedulableUntil = getUnavailableUntil(TEMP_UNSCHEDULE_CONFIG.DURATION);
+
+    await updateProviderConnection(connectionId, {
+      tempUnschedulableUntil,
+      testStatus: "temp_unavailable",
+      lastError: reason,
+      errorCode: status,
+      lastErrorAt: new Date().toISOString()
+    });
+
+    if (provider && status && reason) {
+      console.warn(`⏸️ ${provider} [${status}]: ${reason} (temporary unschedule, retry on same account)`);
+    }
+
+    return {
+      shouldFallback: false, // Don't fallback yet
+      cooldownMs: 0, // Ready for immediate retry
+      isRetryable: true
+    };
+  }
+
+  // Permanent error - apply full cooldown
+  const rateLimitedUntil = getUnavailableUntil(cooldownMs);
 
   await updateProviderConnection(connectionId, {
     rateLimitedUntil,
@@ -222,30 +267,42 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     backoffLevel: newBackoffLevel ?? backoffLevel
   });
 
+  // Clear all session bindings for this account (force re-routing)
+  if (provider) {
+    const cleared = clearSessionBindings(provider, connectionId);
+    if (cleared > 0) {
+      log.info("AUTH", `${provider} | cleared ${cleared} session binding(s) for unavailable account`);
+    }
+  }
+
   if (provider && status && reason) {
     console.error(`❌ ${provider} [${status}]: ${reason}`);
   }
 
-  return { shouldFallback: true, cooldownMs };
+  return { shouldFallback: true, cooldownMs, isRetryable: false };
 }
 
 /**
  * Clear account error status (only if currently has error)
  * Optimized to avoid unnecessary DB updates
+ * Also clears temporary unschedule state
  */
 export async function clearAccountError(connectionId, currentConnection) {
   // Only update if currently has error status
   const hasError = currentConnection.testStatus === "unavailable" ||
+                   currentConnection.testStatus === "temp_unavailable" ||
                    currentConnection.lastError ||
-                   currentConnection.rateLimitedUntil;
-  
+                   currentConnection.rateLimitedUntil ||
+                   currentConnection.tempUnschedulableUntil;
+
   if (!hasError) return; // Skip if already clean
-  
+
   await updateProviderConnection(connectionId, {
     testStatus: "active",
     lastError: null,
     lastErrorAt: null,
     rateLimitedUntil: null,
+    tempUnschedulableUntil: null,
     backoffLevel: 0
   });
   log.info("AUTH", `Account ${connectionId.slice(0,8)} error cleared`);

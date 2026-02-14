@@ -1,10 +1,14 @@
 import {
   getProviderCredentials,
+  getProviderCredentialsWithSession,
   markAccountUnavailable,
   clearAccountError,
   extractApiKey,
   isValidApiKey,
+  bindSession,
 } from "../services/auth.js";
+import { parseSessionRequest } from "open-sse/services/stickySession.js";
+import { getRetryBackoffDelay, TEMP_UNSCHEDULE_CONFIG } from "open-sse/services/accountFallback.js";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { errorResponse, unavailableResponse } from "open-sse/utils/error.js";
@@ -12,6 +16,10 @@ import { handleComboChat } from "open-sse/services/combo.js";
 import { HTTP_STATUS } from "open-sse/config/constants.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
+import { getSettings } from "@/lib/localDb";
+import { getProxyConfigForProvider } from "@/lib/proxy/settings";
+import { runWithProxyContext } from "@/lib/proxy/context";
+import "@/lib/proxy/fetchPatch";
 
 /**
  * Handle chat completion request
@@ -103,6 +111,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   }
 
   const { provider, model } = modelInfo;
+  const settings = await getSettings();
+  const providerProxy = getProxyConfigForProvider(provider, settings);
 
   // Log model routing (alias → actual model)
   if (modelStr !== `${provider}/${model}`) {
@@ -111,6 +121,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     log.info("ROUTING", `Provider: ${provider}, Model: ${model}`);
   }
 
+  // Parse session request for sticky session support
+  const sessionRequest = request ? parseSessionRequest(body, request.headers) : null;
+
   // Extract userAgent from request
   const userAgent = request?.headers?.get("user-agent") || "";
 
@@ -118,9 +131,16 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let excludeConnectionId = null;
   let lastError = null;
   let lastStatus = null;
+  let isFirstAttempt = true;
+  let retryCount = 0; // Track retry attempts on same account for temporary errors
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionId);
+    // Use session-aware credentials selection on first attempt
+    const credentials = isFirstAttempt && sessionRequest
+      ? await getProviderCredentialsWithSession(provider, sessionRequest, excludeConnectionId)
+      : await getProviderCredentials(provider, excludeConnectionId);
+
+    isFirstAttempt = false;
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -142,41 +162,69 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const accountId = credentials.connectionId.slice(0, 8);
     log.info("AUTH", `Using ${provider} account: ${accountId}...`);
 
-    const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
+    const refreshedCredentials = await runWithProxyContext(
+      providerProxy,
+      () => checkAndRefreshToken(provider, credentials)
+    );
     
     // Use shared chatCore
-    const result = await handleChatCore({
-      body: { ...body, model: `${provider}/${model}` },
-      modelInfo: { provider, model },
-      credentials: refreshedCredentials,
-      log,
-      clientRawRequest,
-      connectionId: credentials.connectionId,
-      userAgent,
-      apiKey,
-      onCredentialsRefreshed: async (newCreds) => {
-        await updateProviderCredentials(credentials.connectionId, {
-          accessToken: newCreds.accessToken,
-          refreshToken: newCreds.refreshToken,
-          providerSpecificData: newCreds.providerSpecificData,
-          testStatus: "active"
-        });
-      },
-      onRequestSuccess: async () => {
-        await clearAccountError(credentials.connectionId, credentials);
-      }
-    });
+    const result = await runWithProxyContext(providerProxy, () =>
+      handleChatCore({
+        body: { ...body, model: `${provider}/${model}` },
+        modelInfo: { provider, model },
+        credentials: refreshedCredentials,
+        log,
+        clientRawRequest,
+        connectionId: credentials.connectionId,
+        userAgent,
+        apiKey,
+        onCredentialsRefreshed: async (newCreds) => {
+          await updateProviderCredentials(credentials.connectionId, {
+            accessToken: newCreds.accessToken,
+            refreshToken: newCreds.refreshToken,
+            providerSpecificData: newCreds.providerSpecificData,
+            testStatus: "active"
+          });
+        },
+        onRequestSuccess: async () => {
+          await clearAccountError(credentials.connectionId, credentials);
+          // Bind session to account on success (if not from sticky session)
+          if (sessionRequest && !credentials.fromStickySession) {
+            await bindSession(provider, sessionRequest, credentials.connectionId);
+          }
+        }
+      })
+    );
     
-    if (result.success) return result.response;
+    if (result.success) {
+      // Reset retry count on success
+      retryCount = 0;
+      return result.response;
+    }
 
     // Mark account unavailable (auto-calculates cooldown with exponential backoff)
-    const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider);
-    
+    const { shouldFallback, isRetryable } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider);
+
+    // If error is retryable on same account, retry with backoff
+    if (isRetryable && retryCount < TEMP_UNSCHEDULE_CONFIG.MAX_RETRIES) {
+      retryCount++;
+      const delayMs = getRetryBackoffDelay(retryCount - 1);
+      log.warn("AUTH", `Account ${accountId}... temporary error (${result.status}), retrying in ${delayMs}ms (attempt ${retryCount}/${TEMP_UNSCHEDULE_CONFIG.MAX_RETRIES})`);
+
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+
+      // Retry on same account (don't exclude)
+      continue;
+    }
+
+    // Fall back to next account
     if (shouldFallback) {
       log.warn("AUTH", `Account ${accountId}... unavailable (${result.status}), trying fallback`);
       excludeConnectionId = credentials.connectionId;
       lastError = result.error;
       lastStatus = result.status;
+      retryCount = 0; // Reset retry count for new account
       continue;
     }
 

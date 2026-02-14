@@ -6,10 +6,11 @@ import { promisify } from "util";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import { getUserHomeDir } from "@/lib/userPaths";
 
 const execAsync = promisify(exec);
 
-const getOpenClawDir = () => path.join(os.homedir(), ".openclaw");
+const getOpenClawDir = () => path.join(getUserHomeDir(), ".openclaw");
 const getOpenClawSettingsPath = () => path.join(getOpenClawDir(), "openclaw.json");
 
 // Check if openclaw CLI is installed

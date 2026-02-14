@@ -6,45 +6,45 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
+import { useI18n } from "@/shared/i18n";
 import Button from "./Button";
 import { ConfirmModal } from "./Modal";
 
-const navItems = [
-  { href: "/dashboard/endpoint", label: "Endpoint", icon: "api" },
-  { href: "/dashboard/providers", label: "Providers", icon: "dns" },
-  { href: "/dashboard/combos", label: "Combos", icon: "layers" },
-  { href: "/dashboard/usage", label: "Usage", icon: "bar_chart" },
-  { href: "/dashboard/cli-tools", label: "CLI Tools", icon: "terminal" },
+const getNavItems = (t) => [
+  { href: "/dashboard/endpoint", label: t("nav.endpoint"), icon: "api" },
+  { href: "/dashboard/providers", label: t("nav.providers"), icon: "dns" },
+  { href: "/dashboard/combos", label: t("nav.combos"), icon: "layers" },
+  { href: "/dashboard/usage", label: t("nav.usage"), icon: "bar_chart" },
+  { href: "/dashboard/cli-tools", label: t("nav.cliTools"), icon: "terminal" },
 ];
 
 // Debug items (only show when ENABLE_REQUEST_LOGS=true)
-const debugItems = [
-  { href: "/dashboard/translator", label: "Translator", icon: "translate" },
+const getDebugItems = (t) => [
+  { href: "/dashboard/translator", label: t("nav.translator"), icon: "translate" },
 ];
 
-const systemItems = [
-  { href: "/dashboard/profile", label: "Settings", icon: "settings" },
+const getSystemItems = (t) => [
+  { href: "/dashboard/profile", label: t("nav.settings"), icon: "settings" },
 ];
 
 export default function Sidebar({ onClose }) {
   const pathname = usePathname();
+  const { t } = useI18n();
   const [showShutdownModal, setShowShutdownModal] = useState(false);
   const [isShuttingDown, setIsShuttingDown] = useState(false);
   const [isDisconnected, setIsDisconnected] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
 
-  // Check if debug mode is enabled (non-blocking)
+  const navItems = getNavItems(t);
+  const debugItems = getDebugItems(t);
+  const systemItems = getSystemItems(t);
+
+  // Check if debug mode is enabled
   useEffect(() => {
-    fetch("/api/settings", { cache: "no-store" })
+    fetch("/api/settings")
       .then(res => res.json())
-      .then(data => {
-        if (data?.enableRequestLogs === true) {
-          setShowDebug(true);
-        }
-      })
-      .catch(() => {
-        // Silently fail - debug mode won't show
-      });
+      .then(data => setShowDebug(data?.enableRequestLogs === true))
+      .catch(() => {});
   }, []);
 
   const isActive = (href) => {
@@ -121,7 +121,7 @@ export default function Sidebar({ onClose }) {
           {showDebug && (
             <div className="pt-4 mt-2">
               <p className="px-4 text-xs font-semibold text-text-muted/60 uppercase tracking-wider mb-2">
-                Debug
+                {t("nav.debug")}
               </p>
               {debugItems.map((item) => (
                 <Link
@@ -152,7 +152,7 @@ export default function Sidebar({ onClose }) {
           {/* System section */}
           <div className="pt-4 mt-2">
             <p className="px-4 text-xs font-semibold text-text-muted/60 uppercase tracking-wider mb-2">
-              System
+              {t("nav.system")}
             </p>
             {systemItems.map((item) => (
               <Link

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getProviderConnectionById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { getSettings } from "@/lib/localDb";
+import { getProxyConfigForProvider } from "@/lib/proxy/settings";
+import { runWithProxyContext } from "@/lib/proxy/context";
+import "@/lib/proxy/fetchPatch";
 
 // Provider models endpoints configuration
 const PROVIDER_MODELS_CONFIG = {
@@ -86,6 +90,10 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: "Connection not found" }, { status: 404 });
     }
 
+    const settings = await getSettings();
+    const providerProxy = getProxyConfigForProvider(connection.provider, settings);
+
+    return await runWithProxyContext(providerProxy, async () => {
     if (isOpenAICompatibleProvider(connection.provider)) {
       const baseUrl = connection.providerSpecificData?.baseUrl;
       if (!baseUrl) {
@@ -214,6 +222,7 @@ export async function GET(request, { params }) {
       provider: connection.provider,
       connectionId: connection.id,
       models
+    });
     });
   } catch (error) {
     console.log("Error fetching provider models:", error);

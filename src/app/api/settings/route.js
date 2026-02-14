@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSettings, updateSettings } from "@/lib/localDb";
 import bcrypt from "bcryptjs";
+import {
+  normalizeProxyProfiles,
+  normalizeProviderProxyBindings,
+} from "@/lib/proxy/settings";
 
 export async function GET() {
   try {
@@ -50,6 +54,14 @@ export async function PATCH(request) {
       body.password = await bcrypt.hash(body.newPassword, salt);
       delete body.newPassword;
       delete body.currentPassword;
+    }
+
+    if (body.proxyProfiles !== undefined) {
+      body.proxyProfiles = normalizeProxyProfiles(body.proxyProfiles);
+    }
+
+    if (body.providerProxyBindings !== undefined) {
+      body.providerProxyBindings = normalizeProviderProxyBindings(body.providerProxyBindings);
     }
 
     const settings = await updateSettings(body);

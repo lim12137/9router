@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFile, readdir } from "fs/promises";
-import { homedir } from "os";
 import { join } from "path";
+import { getUserHomeDir } from "@/lib/userPaths";
 
 /**
  * GET /api/oauth/kiro/auto-import
@@ -9,7 +9,7 @@ import { join } from "path";
  */
 export async function GET() {
   try {
-    const cachePath = join(homedir(), ".aws/sso/cache");
+    const cachePath = join(getUserHomeDir(), ".aws/sso/cache");
 
     // Try to read cache directory
     let files;

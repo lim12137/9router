@@ -1,3 +1,86 @@
+# v0.2.70 (2026-02-12)
+
+## Features
+- Enhanced configuration system based on sub2api design
+  - Add src/lib/config.js for centralized configuration management
+  - Support comprehensive environment variable configuration
+  - Add configuration validation with detailed error messages
+  - Add getEnvString, getEnvInt, getEnvBool helpers
+  - Add printEnvHelp() for environment variable documentation
+  - Update localDb.js to use centralized config module
+  - Export PROXY_CONFIG, SESSION_CONFIG, FALLBACK_CONFIG
+  - Export LOGGING_CONFIG, USAGE_CONFIG, OBSERVABILITY_CONFIG
+  - Add getDefaultDataDir() with Docker detection
+  - Data directory priority: DATA_DIR > /app/data > ~/.9router
+  - Add configuration summary display function
+
+Environment Variables Added:
+- Server: SERVER_HOST, PORT, NODE_ENV
+- Database: DATA_DIR, DB_MAX_CONNECTIONS
+- Auth: JWT_SECRET, INITIAL_PASSWORD, REQUIRE_API_KEY, SESSION_TTL
+- Fallback: FALLBACK_STRATEGY, STICKY_ROUND_ROBIN_LIMIT
+- Proxy: HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, SOCKS_PROXY, NO_PROXY
+- Logging: LOG_LEVEL, ENABLE_REQUEST_LOGS, MAX_LOG_FILES
+- Cloud: CLOUD_URL, CLOUD_SYNC_ENABLED, CLOUD_SYNC_INTERVAL_MS
+- Usage: USAGE_TRACKING_ENABLED, USAGE_MAX_RECORDS
+- Observability: OBSERVABILITY_MAX_RECORDS, OBSERVABILITY_BATCH_SIZE
+
+# v0.2.69 (2026-02-12)
+
+## Fixes
+- Enhanced error handling and failover mechanism based on sub2api design
+  - Added temporary unschedule for retryable errors (Google 400, timeout, etc.)
+  - Added retry mechanism with exponential backoff on same account (max 3 retries)
+  - Enhanced accountFallback.js with checkRetryableError function
+  - Added tempUnschedulableUntil field for temporary account state
+  - Updated auth.js to support temporary unschedule and retry logic
+  - Updated chat.js to retry on same account before falling back
+  - Added getRetryBackoffDelay for retry timing (1s, 2s, 4s... max 10s)
+  - Preserved sticky session bindings during temporary unschedule
+
+# v0.2.68 (2026-02-12)
+
+## Features
+- Implemented sticky session system based on sub2api design
+  - Added open-sse/services/stickySession.js with session hash generation
+  - Support for explicit session binding via metadata.user_id (session_xxx pattern)
+  - Support for cache_control ephemeral content-based session tracking
+  - Fallback to full content hash with request context for session isolation
+  - In-memory session cache with 1-hour TTL
+  - Automatic session cleanup and cache size management (1000 sessions max)
+  - Session binding cleared when account becomes unavailable
+- Enhanced proxy system with caching and health monitoring
+  - Added open-sse/utils/proxyUtils.js for proxy URL parsing
+  - Added open-sse/utils/proxyFetch.js with latency tracking
+  - Support for HTTP/HTTPS/SOCKS4/SOCKS5 proxy protocols
+  - Proxy health status caching with 60-second TTL
+  - Proxy statistics and environment variable exposure
+  - NO_PROXY bypass pattern support
+
+## Fixes
+- Updated auth.js to integrate sticky session selection
+  - Added getProviderCredentialsWithSession for session-aware account selection
+  - Added bindSession to bind successful requests to accounts
+  - Modified markAccountUnavailable to clear session bindings
+- Updated chat.js to use sticky session on first request attempt
+  - Session binding occurs after successful response
+  - First attempt checks for existing session binding
+
+# v0.2.67 (2026-02-12)
+
+## Features
+- Added GLM 5 model support for iFlow provider
+  - Added glm-5 model to iFlow (if) provider with thinking support
+  - Added glm-5 model to GLM (glm/glm-cn) providers
+  - Added pricing configuration for glm-5 model
+
+## Fixes
+- Fixed Gemini/Antigravity tool schema compatibility
+  - Added prefill and enumTitles to unsupported schema constraints
+  - Added logic to rename parametersJsonSchema to parameters
+  - Added logic to remove root-level $id while preserving $id as property name
+  - Prevents Gemini INVALID_ARGUMENT 400 errors from incompatible tool metadata
+
 # v0.2.66 (2026-02-06)
 
 ## Features
@@ -84,3 +167,31 @@
 ## Changes
 - README updates.
 - Antigravity bug fixes.
+
+# v0.2.32 (2025-02-12)
+
+## Features
+- Completed Chinese localization for Usage and Combos dashboard pages
+  - Added missing translation keys for usage overview, tables, and all UI elements
+  - Fixed ComboFormModal and ComboCard components to use useI18n hook properly
+  - Updated time formatting to support parameter interpolation (e.g., "{minutes}m ago", "{hours}h ago")
+  - Updated i18n locales.js with new translation keys
+
+## Fixes
+- Fixed socks5 protocol detection in proxyFetch for socks5:// URLs
+  - In getAgent function, new URL().protocol returns "socks5:" with trailing colon
+  - Changed protocol check from "socks5:" to "socks5" for correct matching
+  - Added .replace(/:$/, "") to strip trailing colon from protocol
+
+## Changes
+- Updated i18n locales.js with new keys:
+  - usage: overviewTitle, usageByModel, usageByAccount, usageByApiKey, unknownModel, unknownAccount, unknownKey, accountPlaceholder
+  - combos: nameRequired, comboPlaceholder, noModelsAddedYet, failedToCreate, failedToUpdate
+  - common: copyCombo
+  - settings: proxyEnabled, proxyDisabled (for toggle display)
+
+## Files Changed
+- src/app/(dashboard)/dashboard/usage/page.js
+- src/app/(dashboard)/dashboard/combos/page.js
+- src/shared/i18n/locales.js
+- open-sse/utils/proxyFetch.js
