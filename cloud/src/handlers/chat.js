@@ -10,6 +10,52 @@ import { parseApiKey, extractBearerToken } from "../utils/apiKey.js";
 import { getMachineData, saveMachineData } from "../services/storage.js";
 
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+const IFLOW_IDLE_ROTATE_MS = 30 * 60 * 1000;
+
+function toTimestamp(value) {
+  if (!value) return 0;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function sortByPriority(entries) {
+  return [...entries].sort((a, b) => (a[1].priority || 999) - (b[1].priority || 999));
+}
+
+function sortByRecency(entries) {
+  return [...entries].sort((a, b) => {
+    const aTs = toTimestamp(a[1].lastUsedAt);
+    const bTs = toTimestamp(b[1].lastUsedAt);
+    if (aTs === bTs) return (a[1].priority || 999) - (b[1].priority || 999);
+    return bTs - aTs;
+  });
+}
+
+function selectIflowConnectionEntry(entries, nowMs = Date.now()) {
+  const byPriority = sortByPriority(entries);
+  const byRecency = sortByRecency(entries);
+  const lastEntry = byRecency[0] || null;
+  const lastConnection = lastEntry?.[1];
+  const lastTs = toTimestamp(lastConnection?.lastUsedAt);
+
+  if (!lastEntry || !lastTs) {
+    return { entry: byPriority[0], rotated: false, stayedWithLast: false };
+  }
+
+  const idleMs = nowMs - lastTs;
+  const shouldRotate = idleMs > IFLOW_IDLE_ROTATE_MS;
+
+  if (!shouldRotate || byPriority.length === 1) {
+    return { entry: lastEntry, rotated: false, stayedWithLast: true };
+  }
+
+  const currentId = lastEntry[0];
+  const currentIdx = byPriority.findIndex(([id]) => id === currentId);
+  const nextIdx = currentIdx === -1 ? 0 : (currentIdx + 1) % byPriority.length;
+  const nextEntry = byPriority[nextIdx] || byPriority[0];
+
+  return { entry: nextEntry, rotated: nextEntry?.[0] !== currentId, stayedWithLast: false };
+}
 
 async function getModelInfo(modelStr, machineId, env) {
   const data = await getMachineData(machineId, env);
@@ -226,7 +272,25 @@ async function getProviderCredentials(machineId, provider, env, excludeConnectio
     return null;
   }
 
-  const [connectionId, connection] = providerConnections[0];
+  let selectedEntry = providerConnections[0];
+  if (provider === "iflow") {
+    const nowIso = new Date().toISOString();
+    const { entry, rotated, stayedWithLast } = selectIflowConnectionEntry(providerConnections);
+    selectedEntry = entry || providerConnections[0];
+
+    if (selectedEntry) {
+      const [selectedId, selectedConnection] = selectedEntry;
+      data.providers[selectedId].lastUsedAt = nowIso;
+      data.providers[selectedId].consecutiveUseCount = stayedWithLast
+        ? (selectedConnection.consecutiveUseCount || 0) + 1
+        : 1;
+      data.providers[selectedId].updatedAt = nowIso;
+      await saveMachineData(machineId, data, env);
+      log.info("AUTH", `iflow | account selected=${selectedId.slice(0, 8)} | rotated=${rotated}`);
+    }
+  }
+
+  const [connectionId, connection] = selectedEntry;
 
   return {
     id: connectionId,
