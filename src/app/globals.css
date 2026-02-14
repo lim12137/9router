@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap&text=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789');
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -118,9 +118,9 @@ body {
   background: linear-gradient(180deg, #1F1F1E 0%, #191918 100%);
 }
 
-/* Material Symbols */
+/* Material Symbols with fallback */
 .material-symbols-outlined {
-  font-family: 'Material Symbols Outlined', sans-serif;
+  font-family: 'Material Symbols Outlined', system-ui, sans-serif;
   font-weight: normal;
   font-style: normal;
   font-size: 24px;
@@ -135,6 +135,7 @@ body {
   -webkit-font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-display: block;
 }
 
 .material-symbols-outlined.fill-1 {

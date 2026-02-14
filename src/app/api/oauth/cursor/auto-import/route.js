@@ -18,7 +18,8 @@ export async function GET() {
     } else if (platform === "linux") {
       dbPath = join(homedir(), ".config/Cursor/User/globalStorage/state.vscdb");
     } else if (platform === "win32") {
-      dbPath = join(process.env.APPDATA || "", "Cursor/User/globalStorage/state.vscdb");
+      const userProfile = process.env.USERPROFILE || "";
+      dbPath = join(userProfile, "AppData", "Roaming", "Cursor", "User", "globalStorage", "state.vscdb");
     } else {
       return NextResponse.json(
         { error: "Unsupported platform", found: false },

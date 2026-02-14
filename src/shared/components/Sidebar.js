@@ -33,12 +33,18 @@ export default function Sidebar({ onClose }) {
   const [isDisconnected, setIsDisconnected] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
 
-  // Check if debug mode is enabled
+  // Check if debug mode is enabled (non-blocking)
   useEffect(() => {
-    fetch("/api/settings")
+    fetch("/api/settings", { cache: "no-store" })
       .then(res => res.json())
-      .then(data => setShowDebug(data?.enableRequestLogs === true))
-      .catch(() => {});
+      .then(data => {
+        if (data?.enableRequestLogs === true) {
+          setShowDebug(true);
+        }
+      })
+      .catch(() => {
+        // Silently fail - debug mode won't show
+      });
   }, []);
 
   const isActive = (href) => {

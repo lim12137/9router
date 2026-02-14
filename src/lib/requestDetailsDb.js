@@ -67,15 +67,10 @@ function getUserDataDir() {
   if (isCloud) return "/tmp";
 
   try {
-    const platform = process.platform;
     const homeDir = os.homedir();
     const appName = getAppName();
-
-    if (platform === "win32") {
-      return path.join(process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"), appName);
-    } else {
-      return path.join(homeDir, `.${appName}`);
-    }
+    // Use ~/.{appName} as cross-platform default to avoid Windows APPDATA trace issues during Next build.
+    return path.join(homeDir, `.${appName}`);
   } catch (error) {
     console.error("[requestDetailsDb] Failed to get user data directory:", error.message);
     return path.join(process.cwd(), ".9router");

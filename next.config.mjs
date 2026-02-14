@@ -1,6 +1,10 @@
 /** @type {import('next').NextConfig} */
+const isWindows = process.platform === "win32";
+
 const nextConfig = {
-  output: "standalone",
+  // Next.js file tracing may hit protected profile folders on Windows
+  // (EPERM scandir under AppData). Keep standalone for non-Windows builds.
+  ...(isWindows ? {} : { output: "standalone" }),
   images: {
     unoptimized: true
   },
