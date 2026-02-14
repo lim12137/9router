@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
+const isWindows = process.platform === "win32";
+
 const nextConfig = {
-  output: "standalone",
+  // Windows file tracing may touch protected profile paths during standalone copy.
+  ...(isWindows ? {} : { output: "standalone" }),
   distDir: ".next",
   images: {
     unoptimized: true
