@@ -68,8 +68,20 @@ jobs:
                  "https://github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git"
           git fetch source --quiet
 
-          # Get commits since 2025-02-14 (use AUTH_HEADER if available)
-          SINCE_DATE="2025-02-14T00:00:00Z"
+          # Calculate SINCE_DATE based on last successful sync
+          if [ "$LAST_SHA" = "init" ]; then
+            # First run: use a default start date
+            SINCE_DATE="2025-02-14T00:00:00Z"
+          else
+            # Get the commit date of last successful sync
+            LAST_COMMIT_DATE=$(git show -s --format=%ci "source/master" 2>/dev/null | head -1 | cut -d' ' -f1-2 | tr ' ' 'T')
+            if [ -n "$LAST_COMMIT_DATE" ]; then
+              SINCE_DATE="${LAST_COMMIT_DATE}Z"
+            else
+              SINCE_DATE="2025-02-14T00:00:00Z"
+            fi
+          fi
+          echo "Syncing commits since: $SINCE_DATE"
           COMMITS=$(eval "curl -sf \
             ${AUTH_HEADER} \
             -H \"Accept: application/vnd.github+json\" \
