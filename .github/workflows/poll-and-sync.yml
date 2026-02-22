@@ -192,23 +192,20 @@ jobs:
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo:  context.repo.repo,
-              title: ` [Manual Merge Required] ${msg.slice(0, 60)}`,
+              title: `[Manual Merge Required] ` + msg.slice(0, 60),
               head:  branchName,
               base:  'master',
-              body: `
-## Auto-merge conflict
-
-**Commit:** \`${shortSha}\`
-**Message:** ${msg}
-**Author:** ${author}
-**Trigger Reason:** ${reason}
-              `
+              body: '## Auto-merge conflict\n\n' +
+                    'Commit: `' + shortSha + '`\n' +
+                    'Message: ' + msg + '\n' +
+                    'Author: ' + author + '\n' +
+                    'Trigger Reason: ' + reason
             });
 
             await github.rest.issues.create({
               owner:  context.repo.owner,
               repo:   context.repo.repo,
-              title:  ` Merge conflict needs manual handling [${shortSha}]`,
+              title: `Merge conflict needs manual handling [` + shortSha + `]`,
               body:   `PR: ${pr.data.html_url}\nTrigger reason: ${reason}`,
               labels: ['merge-conflict', 'urgent']
             });
