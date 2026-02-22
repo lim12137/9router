@@ -1,0 +1,223 @@
+name: Poll & Sync from CLIProxyAPI
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  poll-and-sync:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: poll-sync-group
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Restore sync state
+        uses: actions/cache@v4
+        with:
+          path: .sync_state
+          key: sync-state-${{ github.run_id }}
+          restore-keys: sync-state-
+
+      - name: Initialize sync state
+        run: |
+          mkdir -p .sync_state
+          [ -f .sync_state/last_success_sha ] || echo "init" > .sync_state/last_success_sha
+          [ -f .sync_state/failed_shas ]      || touch .sync_state/failed_shas
+
+      # ─────────────────────────────────────────
+      # Core: Dual keyword detection + cherry-pick
+      # ─────────────────────────────────────────
+      - name: Poll + dual detection
+        id: sync
+        env:
+          SOURCE_PAT: ${{ secrets.SOURCE_REPO_PAT }}
+        run: |
+          SOURCE_OWNER="router-for-me"
+          SOURCE_REPO="CLIProxyAPI"
+          TARGET_BRANCH="master"
+
+          # Keyword config
+          MSG_KEYWORDS="iflow|qwen"
+          CODE_KEYWORDS="iflow|qwen"
+
+          LAST_SHA=$(cat .sync_state/last_success_sha)
+          FAILED_SHAS=$(cat .sync_state/failed_shas)
+
+          # Register source repo remote
+          git remote get-url source 2>/dev/null \
+            || git remote add source \
+                 "https://x-access-token:${SOURCE_PAT}@github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git"
+          git fetch source --quiet
+
+          # Get recent 30 commits
+          COMMITS=$(curl -sf \
+            -H "Authorization: Bearer ${SOURCE_PAT}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?per_page=30")
+
+          LATEST_SHA=$(echo "$COMMITS" | jq -r '.[0].sha')
+
+          # Process from old to new (preserve merge order)
+          COMMIT_LIST=$(echo "$COMMITS" | jq -r \
+            'reverse[] | "\(.sha)|\(.commit.message | gsub("\n";" "))|\(.commit.author.name)"')
+
+          while IFS='|' read -r sha msg author; do
+            [ "$sha" = "$LAST_SHA" ] && break
+
+            # Skip previously failed
+            if echo "$FAILED_SHAS" | grep -q "$sha"; then
+              echo "Skipping failed: ${sha:0:7}"
+              continue
+            fi
+
+            echo ""
+            echo "================================"
+            echo "Checking Commit: ${sha:0:7}"
+            echo "   Message: $msg"
+            echo "   Author: $author"
+
+            MATCH_REASON=""
+
+            # ── Check commit message ──
+            if echo "$msg" | grep -qiE "$MSG_KEYWORDS"; then
+              MATCH_REASON="Commit message contains keyword"
+              echo " [Message match] $MATCH_REASON"
+            fi
+
+            # ── Check code content changes ──
+            if [ -z "$MATCH_REASON" ]; then
+              # Get diff for this commit
+              CODE_DIFF=$(git diff source/master "$sha"^.."$sha" \
+                          -- 2>/dev/null \
+                       || git show "$sha" --unified=0 2>/dev/null)
+
+              # Only look at added lines
+              ADDED_LINES=$(echo "$CODE_DIFF" | grep "^+" | grep -v "^+++")
+
+              if echo "$ADDED_LINES" | grep -qiE "$CODE_KEYWORDS"; then
+                MATCH_REASON="Code changes contain keyword"
+                echo " [Code match] $MATCH_REASON"
+                echo "   Matched lines:"
+                echo "$ADDED_LINES" | grep -iE "$CODE_KEYWORDS" | head -5 | sed 's/^/     /'
+              fi
+            fi
+
+            # ── No match, skip ──
+            if [ -z "$MATCH_REASON" ]; then
+              echo " No match, skip"
+              continue
+            fi
+
+            # ── Matched, attempt cherry-pick ──
+            echo ""
+            echo "Merging [${sha:0:7}] Reason: $MATCH_REASON"
+            git checkout $TARGET_BRANCH
+            git cherry-pick "$sha" > /tmp/cherry_output 2>&1
+
+            if [ $? -eq 0 ]; then
+              git push origin $TARGET_BRANCH
+              echo "$sha" > .sync_state/last_success_sha
+              echo " Success: ${sha:0:7}"
+            else
+              echo " Conflict: ${sha:0:7}"
+              cat /tmp/cherry_output
+              git cherry-pick --abort 2>/dev/null || git reset --hard HEAD
+
+              echo "$sha" >> .sync_state/failed_shas
+
+              # Output for next step
+              {
+                echo "has_conflict=true"
+                echo "conflict_sha=$sha"
+                echo "conflict_msg=$msg"
+                echo "conflict_author=$author"
+                echo "match_reason=$MATCH_REASON"
+              } >> $GITHUB_OUTPUT
+            fi
+
+          done <<< "$COMMIT_LIST"
+
+          # Update latest SHA
+          echo "$LATEST_SHA" > .sync_state/last_success_sha
+          echo "has_conflict=${has_conflict:-false}" >> $GITHUB_OUTPUT
+
+      # ─────────────────────────────────────────
+      # Conflict handling: Create PR and Issue
+      # ─────────────────────────────────────────
+      - name: Create PR and Issue on conflict
+        if: steps.sync.outputs.has_conflict == 'true'
+        uses: actions/github-script@v7
+        env:
+          CONFLICT_SHA:    ${{ steps.sync.outputs.conflict_sha }}
+          CONFLICT_MSG:    ${{ steps.sync.outputs.conflict_msg }}
+          CONFLICT_AUTHOR: ${{ steps.sync.outputs.conflict_author }}
+          MATCH_REASON:    ${{ steps.sync.outputs.match_reason }}
+        with:
+          script: |
+            const sha        = process.env.CONFLICT_SHA;
+            const msg        = process.env.CONFLICT_MSG;
+            const author     = process.env.CONFLICT_AUTHOR;
+            const reason     = process.env.MATCH_REASON;
+            const shortSha   = sha.slice(0, 7);
+            const branchName = `conflict/cherry-pick-${shortSha}`;
+
+            const mainRef = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              ref:   'heads/master'
+            });
+
+            try {
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                ref:   `refs/heads/${branchName}`,
+                sha:   mainRef.data.object.sha
+              });
+            } catch(e) {}
+
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: ` [Manual Merge Required] ${msg.slice(0, 60)}`,
+              head:  branchName,
+              base:  'master',
+              body: `
+## Auto-merge conflict
+
+| Field | Value |
+|-------|-------|
+| Commit | \`${shortSha}\` |
+| Message | ${msg} |
+| Author | ${author} |
+| **Trigger Reason** | **${reason}** |
+              `
+            });
+
+            await github.rest.issues.create({
+              owner:  context.repo.owner,
+              repo:   context.repo.repo,
+              title:  ` Merge conflict needs manual handling [${shortSha}]`,
+              body:   `PR: ${pr.data.html_url}\nTrigger reason: ${reason}`,
+              labels: ['merge-conflict', 'urgent']
+            });
+
+      - name: Save sync state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .sync_state
+          key: sync-state-${{ github.run_id }}
