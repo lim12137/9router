@@ -43,6 +43,7 @@ jobs:
       - name: Poll + dual detection
         id: sync
         run: |
+          set +e  # Don't exit on error
           SOURCE_OWNER="router-for-me"
           SOURCE_REPO="CLIProxyAPI"
           TARGET_BRANCH="master"
@@ -76,10 +77,11 @@ jobs:
           LATEST_SHA=$(echo "$COMMITS" | jq -r '.[0].sha')
 
           # Process from old to new (preserve merge order)
+          # Use @ as delimiter to avoid issues with | in messages
           COMMIT_LIST=$(echo "$COMMITS" | jq -r \
-            'reverse[] | "\(.sha)|\(.commit.message | gsub("\n";" "))|\(.commit.author.name)"')
+            'reverse[] | "\(.sha)@\(.commit.message | gsub("\n";" "))@\(.commit.author.name)"')
 
-          while IFS='|' read -r sha msg author; do
+          while IFS='@' read -r sha msg author; do
             [ "$sha" = "$LAST_SHA" ] && break
 
             # Skip previously failed
@@ -104,13 +106,13 @@ jobs:
 
             # ── Check code content changes ──
             if [ -z "$MATCH_REASON" ]; then
-              # Get diff for this commit
+              # Get diff for this commit (allow failure)
               CODE_DIFF=$(git diff source/master "$sha"^.."$sha" \
                           -- 2>/dev/null \
-                       || git show "$sha" --unified=0 2>/dev/null)
+                       || git show "$sha" --unified=0 2>/dev/null || echo "")
 
-              # Only look at added lines
-              ADDED_LINES=$(echo "$CODE_DIFF" | grep "^+" | grep -v "^+++")
+              # Only look at added lines (allow failure)
+              ADDED_LINES=$(echo "$CODE_DIFF" | grep "^+" | grep -v "^+++" || echo "")
 
               if echo "$ADDED_LINES" | grep -qiE "$CODE_KEYWORDS"; then
                 MATCH_REASON="Code changes contain keyword"
@@ -129,7 +131,7 @@ jobs:
             # ── Matched, attempt cherry-pick ──
             echo ""
             echo "Merging [${sha:0:7}] Reason: $MATCH_REASON"
-            git checkout $TARGET_BRANCH
+            git checkout $TARGET_BRANCH || true
             git cherry-pick "$sha" > /tmp/cherry_output 2>&1
 
             if [ $? -eq 0 ]; then
