@@ -42,8 +42,6 @@ jobs:
       # ─────────────────────────────────────────
       - name: Poll + dual detection
         id: sync
-        env:
-          SOURCE_PAT: ${{ secrets.SOURCE_REPO_PAT }}
         run: |
           SOURCE_OWNER="router-for-me"
           SOURCE_REPO="CLIProxyAPI"
@@ -56,17 +54,24 @@ jobs:
           LAST_SHA=$(cat .sync_state/last_success_sha)
           FAILED_SHAS=$(cat .sync_state/failed_shas)
 
-          # Register source repo remote
+          # Use GITHUB_TOKEN for authentication (auto-provided by Actions)
+          # Falls back to anonymous access for public repos
+          AUTH_HEADER=""
+          if [ -n "$GITHUB_TOKEN" ]; then
+            AUTH_HEADER="-H \"Authorization: Bearer ${GITHUB_TOKEN}\""
+          fi
+
+          # Register source repo remote (anonymous for public repo)
           git remote get-url source 2>/dev/null \
             || git remote add source \
-                 "https://x-access-token:${SOURCE_PAT}@github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git"
+                 "https://github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git"
           git fetch source --quiet
 
-          # Get recent 30 commits
-          COMMITS=$(curl -sf \
-            -H "Authorization: Bearer ${SOURCE_PAT}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?per_page=30")
+          # Get recent 30 commits (use AUTH_HEADER if available)
+          COMMITS=$(eval "curl -sf \
+            ${AUTH_HEADER} \
+            -H \"Accept: application/vnd.github+json\" \
+            \"https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?per_page=30\"")
 
           LATEST_SHA=$(echo "$COMMITS" | jq -r '.[0].sha')
 
