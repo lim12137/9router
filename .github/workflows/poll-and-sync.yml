@@ -68,11 +68,12 @@ jobs:
                  "https://github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git"
           git fetch source --quiet
 
-          # Get recent 30 commits (use AUTH_HEADER if available)
+          # Get commits since 2025-02-14 (use AUTH_HEADER if available)
+          SINCE_DATE="2025-02-14T00:00:00Z"
           COMMITS=$(eval "curl -sf \
             ${AUTH_HEADER} \
             -H \"Accept: application/vnd.github+json\" \
-            \"https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?per_page=30\"")
+            \"https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?since=${SINCE_DATE}&per_page=100\"")
 
           LATEST_SHA=$(echo "$COMMITS" | jq -r '.[0].sha')
 
