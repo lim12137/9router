@@ -2,7 +2,7 @@ name: Poll & Sync from CLIProxyAPI
 
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 */12 * * *'
   workflow_dispatch:
 
 jobs:
