@@ -198,12 +198,10 @@ jobs:
               body: `
 ## Auto-merge conflict
 
-| Field | Value |
-|-------|-------|
-| Commit | \`${shortSha}\` |
-| Message | ${msg} |
-| Author | ${author} |
-| **Trigger Reason** | **${reason}** |
+**Commit:** \`${shortSha}\`
+**Message:** ${msg}
+**Author:** ${author}
+**Trigger Reason:** ${reason}
               `
             });
 
