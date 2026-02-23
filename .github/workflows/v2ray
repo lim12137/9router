@@ -1,0 +1,127 @@
+name: Build v2rayA Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'v2rayA version to build (e.g., 2.32.0 or 2.32.0-beta.1)'
+        required: true
+        default: '2.32.0'
+      is_prerelease:
+        description: 'Is this a pre-release version?'
+        required: true
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+env:
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/v2raya
+
+jobs:
+  build-docker:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Set version
+      id: version
+      run: |
+        VERSION="${{ github.event.inputs.version }}"
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "TAG=v$VERSION" >> $GITHUB_OUTPUT
+        echo "Building v2rayA v$VERSION"
+
+        # Determine if this is a pre-release
+        IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
+        echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3.0.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3.0.0
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3.0.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Download v2rayA v${{ steps.version.outputs.VERSION }} binaries
+      run: |
+        mkdir -p release
+        cd release
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        IS_PRERELEASE="${{ steps.version.outputs.IS_PRERELEASE }}"
+
+        echo "Version: $VERSION"
+        echo "Is Pre-release: $IS_PRERELEASE"
+
+        # Download all supported architectures
+        for arch in x86 x64 loongarch64 armv7 arm64; do
+          echo "Downloading v2raya_linux_${arch}_${VERSION}"
+          HTTP_CODE=$(curl -fsSL -w "%{http_code}" \
+            "https://github.com/v2rayA/v2rayA/releases/download/v${VERSION}/v2raya_linux_${arch}_${VERSION}" \
+            -o "v2raya_linux_${arch}_${VERSION}")
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Warning: Failed to download v2raya_linux_${arch}_${VERSION} (HTTP $HTTP_CODE)"
+            rm -f "v2raya_linux_${arch}_${VERSION}"
+          else
+            chmod +x "v2raya_linux_${arch}_${VERSION}"
+            echo "Successfully downloaded v2raya_linux_${arch}_${VERSION}"
+          fi
+        done
+
+        ls -la
+
+    - name: Prepare Dockerfile.Action with version
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        sed -i "s|Realv2rayAVersion|${VERSION}|g" install/docker/docker_helper.sh
+
+    - name: Build Docker image tags
+      id: tags
+      run: |
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        IS_PRERELEASE="${{ steps.version.outputs.IS_PRERELEASE }}"
+
+        # Base tags
+        TAGS="${{ env.GHCR_IMAGE }}:${VERSION}"
+
+        # Add version tag without patch for pre-release (e.g., 2.32)
+        VERSION_SHORT=$(echo $VERSION | cut -d'.' -f1,2)
+        TAGS="$TAGS,${{ env.GHCR_IMAGE }}:${VERSION_SHORT}"
+
+        # Add pre-release tag if applicable
+        if [ "$IS_PRERELEASE" = "true" ]; then
+          TAGS="$TAGS,${{ env.GHCR_IMAGE }}:beta"
+          echo "Adding beta tag for pre-release"
+        fi
+
+        echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5.0.0
+      with:
+        context: .
+        file: install/docker/Dockerfile.Action
+        platforms: linux/amd64,linux/arm64,linux/arm/v7,linux/riscv64
+        push: true
+        tags: ${{ steps.tags.outputs.tags }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Image info
+      run: |
+        echo "=== Docker Image Build Complete ==="
+        echo "Version: ${{ steps.version.outputs.VERSION }}"
+        echo "Is Pre-release: ${{ steps.version.outputs.IS_PRERELEASE }}"
+        echo "Image: ${{ env.GHCR_IMAGE }}"
+        echo "Tags: ${{ steps.tags.outputs.tags }}"
