@@ -1,9 +1,51 @@
 name: Poll & Sync from CLIProxyAPI
 
 on:
+  # Run hourly; actual execution cadence is controlled by MIN_POLL_INTERVAL_MINUTES.
   schedule:
-    - cron: '0 */12 * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
+    inputs:
+      source_owner:
+        description: Source repository owner
+        required: false
+        default: router-for-me
+      source_repo:
+        description: Source repository name
+        required: false
+        default: CLIProxyAPI
+      source_branch:
+        description: Source branch to poll
+        required: false
+        default: master
+      msg_keywords:
+        description: Regex keywords for commit message matching
+        required: false
+        default: iflow|qwen
+      code_keywords:
+        description: Regex keywords for code diff matching
+        required: false
+        default: iflow|qwen
+      min_poll_interval_minutes:
+        description: Minimum polling interval for scheduled runs
+        required: false
+        default: '720'
+      issue_title_template:
+        description: "Issue title template ({source_repo} {short_sha} {message} {reason})"
+        required: false
+        default: '[SourceSync][{source_repo}] {short_sha} {message}'
+      issue_labels:
+        description: Comma-separated labels for created issues
+        required: false
+        default: source-sync,automation
+      doc_dir:
+        description: Reference document directory
+        required: false
+        default: docs/source-commit-watch
+
+permissions:
+  contents: write
+  issues: write
 
 jobs:
   poll-and-sync:
@@ -11,6 +53,18 @@ jobs:
     concurrency:
       group: poll-sync-group
       cancel-in-progress: false
+    env:
+      SOURCE_OWNER: ${{ github.event.inputs.source_owner || vars.SOURCE_SYNC_SOURCE_OWNER || 'router-for-me' }}
+      SOURCE_REPO: ${{ github.event.inputs.source_repo || vars.SOURCE_SYNC_SOURCE_REPO || 'CLIProxyAPI' }}
+      SOURCE_BRANCH: ${{ github.event.inputs.source_branch || vars.SOURCE_SYNC_SOURCE_BRANCH || 'master' }}
+      MSG_KEYWORDS: ${{ github.event.inputs.msg_keywords || vars.SOURCE_SYNC_MSG_KEYWORDS || 'iflow|qwen' }}
+      CODE_KEYWORDS: ${{ github.event.inputs.code_keywords || vars.SOURCE_SYNC_CODE_KEYWORDS || 'iflow|qwen' }}
+      MIN_POLL_INTERVAL_MINUTES: ${{ github.event.inputs.min_poll_interval_minutes || vars.SOURCE_SYNC_MIN_POLL_INTERVAL_MINUTES || '720' }}
+      FALLBACK_SINCE_DATE: ${{ vars.SOURCE_SYNC_FALLBACK_SINCE_DATE || '2025-02-14T00:00:00Z' }}
+      COMMITS_PER_PAGE: ${{ vars.SOURCE_SYNC_COMMITS_PER_PAGE || '100' }}
+      ISSUE_TITLE_TEMPLATE: ${{ github.event.inputs.issue_title_template || vars.SOURCE_SYNC_ISSUE_TITLE_TEMPLATE || '[SourceSync][{source_repo}] {short_sha} {message}' }}
+      ISSUE_LABELS: ${{ github.event.inputs.issue_labels || vars.SOURCE_SYNC_ISSUE_LABELS || 'source-sync,automation' }}
+      DOC_DIR: ${{ github.event.inputs.doc_dir || vars.SOURCE_SYNC_DOC_DIR || 'docs/source-commit-watch' }}
 
     steps:
       - name: Checkout target repo
@@ -21,7 +75,7 @@ jobs:
 
       - name: Configure Git
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Restore sync state
@@ -35,200 +89,360 @@ jobs:
         run: |
           mkdir -p .sync_state
           [ -f .sync_state/last_success_sha ] || echo "init" > .sync_state/last_success_sha
-          [ -f .sync_state/failed_shas ]      || touch .sync_state/failed_shas
+          [ -f .sync_state/failed_shas ] || touch .sync_state/failed_shas
+          [ -f .sync_state/last_polled_epoch ] || echo "0" > .sync_state/last_polled_epoch
+          [ -f .sync_state/last_checked_at ] || echo "$FALLBACK_SINCE_DATE" > .sync_state/last_checked_at
 
-      # ─────────────────────────────────────────
-      # Core: Dual keyword detection + cherry-pick
-      # ─────────────────────────────────────────
       - name: Poll + dual detection
         id: sync
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set +e  # Don't exit on error
-          SOURCE_OWNER="router-for-me"
-          SOURCE_REPO="CLIProxyAPI"
-          TARGET_BRANCH="master"
+          set -euo pipefail
 
-          # Keyword config
-          MSG_KEYWORDS="iflow|qwen"
-          CODE_KEYWORDS="iflow|qwen"
+          MATCH_FILE=".sync_reports/matched_commits.json"
+          mkdir -p .sync_reports
+          echo "[]" > "$MATCH_FILE"
 
-          LAST_SHA=$(cat .sync_state/last_success_sha)
-          FAILED_SHAS=$(cat .sync_state/failed_shas)
-
-          # Use GITHUB_TOKEN for authentication (auto-provided by Actions)
-          # Falls back to anonymous access for public repos
-          AUTH_HEADER=""
-          if [ -n "$GITHUB_TOKEN" ]; then
-            AUTH_HEADER="-H \"Authorization: Bearer ${GITHUB_TOKEN}\""
+          if ! echo "$MIN_POLL_INTERVAL_MINUTES" | grep -Eq '^[0-9]+$'; then
+            echo "MIN_POLL_INTERVAL_MINUTES is invalid ($MIN_POLL_INTERVAL_MINUTES), fallback to 720"
+            MIN_POLL_INTERVAL_MINUTES=720
           fi
 
-          # Register source repo remote (anonymous for public repo)
+          NOW_EPOCH=$(date +%s)
+          LAST_POLLED_EPOCH=$(cat .sync_state/last_polled_epoch 2>/dev/null || echo "0")
+
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ] && [ "$LAST_POLLED_EPOCH" -gt 0 ]; then
+            ELAPSED_MINUTES=$(( (NOW_EPOCH - LAST_POLLED_EPOCH) / 60 ))
+            if [ "$ELAPSED_MINUTES" -lt "$MIN_POLL_INTERVAL_MINUTES" ]; then
+              echo "Skip polling (elapsed ${ELAPSED_MINUTES}m < ${MIN_POLL_INTERVAL_MINUTES}m)"
+              {
+                echo "has_match=false"
+                echo "match_count=0"
+                echo "report_file=$MATCH_FILE"
+              } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          echo "$NOW_EPOCH" > .sync_state/last_polled_epoch
+
+          LAST_CHECKED_AT=$(cat .sync_state/last_checked_at 2>/dev/null || echo "$FALLBACK_SINCE_DATE")
+          if ! date -u -d "$LAST_CHECKED_AT" +"%Y-%m-%dT%H:%M:%SZ" >/dev/null 2>&1; then
+            echo "Invalid last_checked_at ($LAST_CHECKED_AT), reset to fallback date."
+            LAST_CHECKED_AT="$FALLBACK_SINCE_DATE"
+          fi
+
+          CHECK_STARTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "source: ${SOURCE_OWNER}/${SOURCE_REPO}@${SOURCE_BRANCH}"
+          echo "time window start: $LAST_CHECKED_AT"
+          echo "time window end:   $CHECK_STARTED_AT"
+
           git remote get-url source 2>/dev/null \
-            || git remote add source \
-                 "https://github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git"
-          git fetch source --quiet
+            || git remote add source "https://github.com/${SOURCE_OWNER}/${SOURCE_REPO}.git"
+          git fetch source "$SOURCE_BRANCH" --quiet || git fetch source --quiet
 
-          # Calculate SINCE_DATE based on last successful sync
-          if [ "$LAST_SHA" = "init" ]; then
-            # First run: use a default start date
-            SINCE_DATE="2025-02-14T00:00:00Z"
-          else
-            # Get the commit date of last successful sync
-            LAST_COMMIT_DATE=$(git show -s --format=%ci "source/master" 2>/dev/null | head -1 | cut -d' ' -f1-2 | tr ' ' 'T')
-            if [ -n "$LAST_COMMIT_DATE" ]; then
-              SINCE_DATE="${LAST_COMMIT_DATE}Z"
-            else
-              SINCE_DATE="2025-02-14T00:00:00Z"
-            fi
-          fi
+          SINCE_DATE="$LAST_CHECKED_AT"
+
           echo "Syncing commits since: $SINCE_DATE"
-          COMMITS=$(eval "curl -sf \
-            ${AUTH_HEADER} \
-            -H \"Accept: application/vnd.github+json\" \
-            \"https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?since=${SINCE_DATE}&per_page=100\"")
 
-          LATEST_SHA=$(echo "$COMMITS" | jq -r '.[0].sha')
+          AUTH_HEADER=()
+          if [ -n "${GITHUB_TOKEN:-}" ]; then
+            AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+          fi
 
-          # Process from old to new (preserve merge order)
-          # Use @ as delimiter to avoid issues with | in messages
-          COMMIT_LIST=$(echo "$COMMITS" | jq -r \
-            'reverse[] | "\(.sha)@\(.commit.message | gsub("\n";" "))@\(.commit.author.name)"')
+          COMMITS=$(curl -sf \
+            "${AUTH_HEADER[@]}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?since=${SINCE_DATE}&sha=${SOURCE_BRANCH}&per_page=${COMMITS_PER_PAGE}" \
+            || echo "[]")
 
-          while IFS='@' read -r sha msg author; do
-            [ "$sha" = "$LAST_SHA" ] && break
+          if ! echo "$COMMITS" | jq empty >/dev/null 2>&1; then
+            echo "Invalid response from commits API. Fallback to empty list."
+            COMMITS="[]"
+          fi
 
-            # Skip previously failed
-            if echo "$FAILED_SHAS" | grep -q "$sha"; then
-              echo "Skipping failed: ${sha:0:7}"
-              continue
-            fi
+          LATEST_SHA=$(echo "$COMMITS" | jq -r '.[0].sha // ""')
+
+          MATCH_COUNT=0
+          COMMIT_LIST=$(echo "$COMMITS" | jq -r --arg since "$SINCE_DATE" '
+            map(select((.commit.committer.date // .commit.author.date // "") > $since))
+            | reverse[]
+            | @base64
+          ')
+
+          while IFS= read -r row; do
+            [ -z "$row" ] && continue
+
+            data=$(echo "$row" | base64 -d)
+            sha=$(echo "$data" | jq -r '.sha')
+            msg=$(echo "$data" | jq -r '.commit.message | gsub("\n"; " ")')
+            author=$(echo "$data" | jq -r '.commit.author.name // "unknown"')
+
+            [ -z "$sha" ] && continue
 
             echo ""
             echo "================================"
             echo "Checking Commit: ${sha:0:7}"
-            echo "   Message: $msg"
-            echo "   Author: $author"
+            echo "  Message: $msg"
+            echo "  Author: $author"
+
+            FULL_DIFF=$(git show "$sha" --no-color --unified=3 2>/dev/null || echo "")
+            ADDED_LINES=$(echo "$FULL_DIFF" | grep '^+' | grep -v '^+++' || true)
 
             MATCH_REASON=""
-
-            # ── Check commit message ──
             if echo "$msg" | grep -qiE "$MSG_KEYWORDS"; then
               MATCH_REASON="Commit message contains keyword"
-              echo " [Message match] $MATCH_REASON"
+              echo " [Message match]"
+            elif echo "$ADDED_LINES" | grep -qiE "$CODE_KEYWORDS"; then
+              MATCH_REASON="Code changes contain keyword"
+              echo " [Code match]"
             fi
 
-            # ── Check code content changes ──
-            if [ -z "$MATCH_REASON" ]; then
-              # Get diff for this commit (allow failure)
-              CODE_DIFF=$(git diff source/master "$sha"^.."$sha" \
-                          -- 2>/dev/null \
-                       || git show "$sha" --unified=0 2>/dev/null || echo "")
-
-              # Only look at added lines (allow failure)
-              ADDED_LINES=$(echo "$CODE_DIFF" | grep "^+" | grep -v "^+++" || echo "")
-
-              if echo "$ADDED_LINES" | grep -qiE "$CODE_KEYWORDS"; then
-                MATCH_REASON="Code changes contain keyword"
-                echo " [Code match] $MATCH_REASON"
-                echo "   Matched lines:"
-                echo "$ADDED_LINES" | grep -iE "$CODE_KEYWORDS" | head -5 | sed 's/^/     /'
-              fi
-            fi
-
-            # ── No match, skip ──
             if [ -z "$MATCH_REASON" ]; then
               echo " No match, skip"
               continue
             fi
 
-            # ── Matched, attempt cherry-pick ──
-            echo ""
-            echo "Merging [${sha:0:7}] Reason: $MATCH_REASON"
-            git checkout $TARGET_BRANCH || true
-            git cherry-pick "$sha" > /tmp/cherry_output 2>&1
+            DIFF_FILE=".sync_reports/${sha}.diff"
+            printf '%s\n' "$FULL_DIFF" > "$DIFF_FILE"
 
-            if [ $? -eq 0 ]; then
-              git push origin $TARGET_BRANCH
-              echo "$sha" > .sync_state/last_success_sha
-              echo " Success: ${sha:0:7}"
-            else
-              echo " Conflict: ${sha:0:7}"
-              cat /tmp/cherry_output
-              git cherry-pick --abort 2>/dev/null || git reset --hard HEAD
+            temp_json=$(mktemp)
+            jq \
+              --arg sha "$sha" \
+              --arg short_sha "${sha:0:7}" \
+              --arg msg "$msg" \
+              --arg author "$author" \
+              --arg reason "$MATCH_REASON" \
+              --arg diff_file "$DIFF_FILE" \
+              --arg source_url "https://github.com/${SOURCE_OWNER}/${SOURCE_REPO}/commit/${sha}" \
+              '. += [{
+                sha: $sha,
+                short_sha: $short_sha,
+                message: $msg,
+                author: $author,
+                reason: $reason,
+                diff_file: $diff_file,
+                source_commit_url: $source_url
+              }]' \
+              "$MATCH_FILE" > "$temp_json"
+            mv "$temp_json" "$MATCH_FILE"
 
-              echo "$sha" >> .sync_state/failed_shas
-
-              # Output for next step
-              {
-                echo "has_conflict=true"
-                echo "conflict_sha=$sha"
-                echo "conflict_msg=$msg"
-                echo "conflict_author=$author"
-                echo "match_reason=$MATCH_REASON"
-              } >> $GITHUB_OUTPUT
-            fi
-
+            MATCH_COUNT=$((MATCH_COUNT + 1))
+            echo " Matched: ${sha:0:7} ($MATCH_REASON)"
           done <<< "$COMMIT_LIST"
 
-          # Update latest SHA
-          echo "$LATEST_SHA" > .sync_state/last_success_sha
-          echo "has_conflict=${has_conflict:-false}" >> $GITHUB_OUTPUT
+          echo "$CHECK_STARTED_AT" > .sync_state/last_checked_at
 
-      # ─────────────────────────────────────────
-      # Conflict handling: Create PR and Issue
-      # ─────────────────────────────────────────
-      - name: Create PR and Issue on conflict
-        if: steps.sync.outputs.has_conflict == 'true'
+          if [ -n "$LATEST_SHA" ]; then
+            echo "$LATEST_SHA" > .sync_state/last_success_sha
+          fi
+
+          if [ "$MATCH_COUNT" -gt 0 ]; then
+            HAS_MATCH=true
+          else
+            HAS_MATCH=false
+          fi
+
+          {
+            echo "has_match=$HAS_MATCH"
+            echo "match_count=$MATCH_COUNT"
+            echo "report_file=$MATCH_FILE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create Issues with full diff
+        if: steps.sync.outputs.has_match == 'true'
         uses: actions/github-script@v7
         env:
-          CONFLICT_SHA:    ${{ steps.sync.outputs.conflict_sha }}
-          CONFLICT_MSG:    ${{ steps.sync.outputs.conflict_msg }}
-          CONFLICT_AUTHOR: ${{ steps.sync.outputs.conflict_author }}
-          MATCH_REASON:    ${{ steps.sync.outputs.match_reason }}
+          REPORT_FILE: ${{ steps.sync.outputs.report_file }}
         with:
           script: |
-            const sha        = process.env.CONFLICT_SHA;
-            const msg        = process.env.CONFLICT_MSG;
-            const author     = process.env.CONFLICT_AUTHOR;
-            const reason     = process.env.MATCH_REASON;
-            const shortSha   = sha.slice(0, 7);
-            const branchName = `conflict/cherry-pick-${shortSha}`;
+            const fs = require('fs');
 
-            const mainRef = await github.rest.git.getRef({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              ref:   'heads/master'
-            });
+            const reportPath = process.env.REPORT_FILE;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
 
-            try {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                ref:   `refs/heads/${branchName}`,
-                sha:   mainRef.data.object.sha
+            const renderTemplate = (template, data) =>
+              String(template || '').replace(/\{([a-z_]+)\}/gi, (_, rawKey) => {
+                const key = String(rawKey || '').toLowerCase();
+                return String(data[key] ?? '');
               });
-            } catch(e) {}
 
-            const pr = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo:  context.repo.repo,
-              title: `[Manual Merge Required] ` + msg.slice(0, 60),
-              head:  branchName,
-              base:  'master',
-              body: '## Auto-merge conflict\n\n' +
-                    'Commit: `' + shortSha + '`\n' +
-                    'Message: ' + msg + '\n' +
-                    'Author: ' + author + '\n' +
-                    'Trigger Reason: ' + reason
-            });
+            if (!fs.existsSync(reportPath)) {
+              core.setFailed(`Report file not found: ${reportPath}`);
+              return;
+            }
 
-            await github.rest.issues.create({
-              owner:  context.repo.owner,
-              repo:   context.repo.repo,
-              title: `Merge conflict needs manual handling [` + shortSha + `]`,
-              body:   `PR: ${pr.data.html_url}\nTrigger reason: ${reason}`,
-              labels: ['merge-conflict', 'urgent']
-            });
+            const items = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const labels = String(process.env.ISSUE_LABELS || '')
+              .split(',')
+              .map((v) => v.trim())
+              .filter(Boolean);
+
+            core.info(`Matched commits: ${items.length}`);
+
+            for (const item of items) {
+              const sha = String(item.sha || '');
+              if (!sha) continue;
+
+              const shortSha = String(item.short_sha || sha.slice(0, 7));
+              const message = String(item.message || '').replace(/\s+/g, ' ').trim();
+              const marker = `source-sync-sha:${sha}`;
+
+              const existing = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${owner}/${repo} is:issue "${marker}"`,
+                per_page: 1
+              });
+
+              if (existing.data.items.length > 0) {
+                core.info(`Issue already exists for ${shortSha}, skip`);
+                continue;
+              }
+
+              let diffText = '';
+              try {
+                diffText = fs.readFileSync(item.diff_file, 'utf8');
+              } catch {
+                diffText = '(diff file unavailable)';
+              }
+
+              const maxDiffChars = 50000;
+              const isTruncated = diffText.length > maxDiffChars;
+              if (isTruncated) {
+                diffText = diffText.slice(0, maxDiffChars);
+              }
+
+              const titleData = {
+                source_owner: String(process.env.SOURCE_OWNER || ''),
+                source_repo: String(process.env.SOURCE_REPO || ''),
+                sha,
+                short_sha: shortSha,
+                message: message.slice(0, 120),
+                author: String(item.author || ''),
+                reason: String(item.reason || '')
+              };
+
+              let title = renderTemplate(process.env.ISSUE_TITLE_TEMPLATE, titleData).trim();
+              if (!title) {
+                title = `[SourceSync][${process.env.SOURCE_REPO}] ${shortSha} ${message.slice(0, 80)}`.trim();
+              }
+              if (title.length > 240) {
+                title = title.slice(0, 240);
+              }
+
+              const body = [
+                '## Source Sync Alert',
+                `- Marker: ${marker}`,
+                `- Source repo: ${process.env.SOURCE_OWNER}/${process.env.SOURCE_REPO}`,
+                `- Source branch: ${process.env.SOURCE_BRANCH}`,
+                `- SHA: \`${sha}\``,
+                `- Author: ${item.author}`,
+                `- Match reason: ${item.reason}`,
+                `- Commit URL: ${item.source_commit_url}`,
+                `- Reference doc path: \`${process.env.DOC_DIR}/${sha}.md\``,
+                '',
+                '## Full Diff',
+                isTruncated ? '_Diff truncated to 50,000 chars due issue body limit._' : '',
+                '```diff',
+                diffText,
+                '```'
+              ].filter(Boolean).join('\n');
+
+              const payload = {
+                owner,
+                repo,
+                title,
+                body
+              };
+              if (labels.length > 0) {
+                payload.labels = labels;
+              }
+
+              await github.rest.issues.create(payload);
+              core.info(`Created issue for ${shortSha}`);
+            }
+
+      - name: Write reference docs
+        if: steps.sync.outputs.has_match == 'true'
+        env:
+          REPORT_FILE: ${{ steps.sync.outputs.report_file }}
+        run: |
+          set -euo pipefail
+
+          INDEX_FILE="${DOC_DIR}/README.md"
+
+          mkdir -p "$DOC_DIR"
+
+          if [ ! -f "$INDEX_FILE" ]; then
+            {
+              echo "# Source Commit Watch Log"
+              echo ""
+              echo "Auto-generated by \`.github/workflows/poll-and-sync.yml\`."
+              echo ""
+              echo "| Time (UTC) | Commit | Reason | Reference |"
+              echo "|---|---|---|---|"
+            } > "$INDEX_FILE"
+          fi
+
+          NOW_UTC=$(date -u +"%Y-%m-%d %H:%M:%S")
+
+          jq -c '.[]' "$REPORT_FILE" | while IFS= read -r item; do
+            sha=$(echo "$item" | jq -r '.sha')
+            short_sha=$(echo "$item" | jq -r '.short_sha')
+            msg=$(echo "$item" | jq -r '.message')
+            author=$(echo "$item" | jq -r '.author')
+            reason=$(echo "$item" | jq -r '.reason')
+            source_url=$(echo "$item" | jq -r '.source_commit_url')
+            diff_file=$(echo "$item" | jq -r '.diff_file')
+
+            doc_file="${DOC_DIR}/${sha}.md"
+
+            {
+              echo "# Source Commit ${short_sha}"
+              echo ""
+              echo "- Time (UTC): ${NOW_UTC}"
+              echo "- SHA: \`${sha}\`"
+              echo "- Author: ${author}"
+              echo "- Match reason: ${reason}"
+              echo "- Source URL: ${source_url}"
+              echo ""
+              echo "## Commit Message"
+              echo ""
+              echo "${msg}"
+              echo ""
+              echo "## Full Diff"
+              echo ""
+              echo '```diff'
+              cat "$diff_file"
+              echo '```'
+            } > "$doc_file"
+
+            if ! grep -q "$sha" "$INDEX_FILE"; then
+              safe_msg=$(echo "$msg" | tr '|' '/' | cut -c1-80)
+              echo "| ${NOW_UTC} | \`${short_sha}\` | ${reason} | [${safe_msg}](${sha}.md) |" >> "$INDEX_FILE"
+            fi
+          done
+
+      - name: Commit reference docs
+        if: steps.sync.outputs.has_match == 'true'
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- "$DOC_DIR"; then
+            echo "No reference doc changes to commit."
+            exit 0
+          fi
+
+          git add "$DOC_DIR"
+          if git diff --cached --quiet; then
+            echo "No staged changes."
+            exit 0
+          fi
+
+          git commit -m "docs: add source commit reference records [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME:-master}"
 
       - name: Save sync state
         if: always()
