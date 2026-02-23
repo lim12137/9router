@@ -40,6 +40,34 @@ jobs:
         IS_PRERELEASE="${{ github.event.inputs.is_prerelease }}"
         echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
 
+    - name: Download v2rayA Dockerfile.Action
+      run: |
+        # Create directory structure
+        mkdir -p install/docker
+
+        # Download Dockerfile.Action from v2rayA official repo
+        curl -fsSL https://raw.githubusercontent.com/v2rayA/v2rayA/main/install/docker/Dockerfile.Action \
+          -o install/docker/Dockerfile.Action
+
+        # Download docker_helper.sh and update geo data URLs to more reliable sources
+        curl -fsSL https://raw.githubusercontent.com/v2rayA/v2rayA/main/install/docker/docker_helper.sh \
+          -o install/docker/docker_helper.sh
+
+        # Update geo data URLs to use official v2fly repository
+        sed -i 's|https://raw.githubusercontent.com/mzz2017/dist-v2ray-rules-dat/master/geosite.dat|https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat|g' install/docker/docker_helper.sh
+        sed -i 's|https://raw.githubusercontent.com/mzz2017/dist-v2ray-rules-dat/master/geoip.dat|https://github.com/v2fly/geoip/releases/latest/download/geoip.dat|g' install/docker/docker_helper.sh
+
+        # Download iptables.sh
+        curl -fsSL https://raw.githubusercontent.com/v2rayA/v2rayA/main/install/docker/iptables.sh \
+          -o install/docker/iptables.sh
+
+        # Download ip6tables.sh
+        curl -fsSL https://raw.githubusercontent.com/v2rayA/v2rayA/main/install/docker/ip6tables.sh \
+          -o install/docker/ip6tables.sh
+
+        echo "Downloaded Docker files:"
+        ls -la install/docker/
+
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3.0.0
 
@@ -85,6 +113,7 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.VERSION }}"
         sed -i "s|Realv2rayAVersion|${VERSION}|g" install/docker/docker_helper.sh
+        echo "Updated docker_helper.sh with version $VERSION"
 
     - name: Build Docker image tags
       id: tags
