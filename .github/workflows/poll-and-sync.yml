@@ -109,6 +109,13 @@ jobs:
             MIN_POLL_INTERVAL_MINUTES=720
           fi
 
+          if ! echo "$COMMITS_PER_PAGE" | grep -Eq '^[0-9]+$' \
+            || [ "$COMMITS_PER_PAGE" -lt 1 ] \
+            || [ "$COMMITS_PER_PAGE" -gt 100 ]; then
+            echo "COMMITS_PER_PAGE is invalid ($COMMITS_PER_PAGE), fallback to 100"
+            COMMITS_PER_PAGE=100
+          fi
+
           NOW_EPOCH=$(date +%s)
           LAST_POLLED_EPOCH=$(cat .sync_state/last_polled_epoch 2>/dev/null || echo "0")
 
@@ -117,15 +124,17 @@ jobs:
             if [ "$ELAPSED_MINUTES" -lt "$MIN_POLL_INTERVAL_MINUTES" ]; then
               echo "Skip polling (elapsed ${ELAPSED_MINUTES}m < ${MIN_POLL_INTERVAL_MINUTES}m)"
               {
+                echo "did_poll=false"
+                echo "fetch_ok=true"
                 echo "has_match=false"
                 echo "match_count=0"
                 echo "report_file=$MATCH_FILE"
+                echo "checkpoint_time="
+                echo "polled_epoch=$LAST_POLLED_EPOCH"
               } >> "$GITHUB_OUTPUT"
               exit 0
             fi
           fi
-
-          echo "$NOW_EPOCH" > .sync_state/last_polled_epoch
 
           LAST_CHECKED_AT=$(cat .sync_state/last_checked_at 2>/dev/null || echo "$FALLBACK_SINCE_DATE")
           if ! date -u -d "$LAST_CHECKED_AT" +"%Y-%m-%dT%H:%M:%SZ" >/dev/null 2>&1; then
@@ -152,16 +161,85 @@ jobs:
             AUTH_HEADER=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
           fi
 
-          COMMITS=$(curl -sf \
-            "${AUTH_HEADER[@]}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?since=${SINCE_DATE}&sha=${SOURCE_BRANCH}&per_page=${COMMITS_PER_PAGE}" \
-            || echo "[]")
+          PAGE=1
+          MAX_PAGES=20
+          FETCH_FAILED=0
+          ALL_COMMITS_FILE=$(mktemp)
+          echo "[]" > "$ALL_COMMITS_FILE"
 
-          if ! echo "$COMMITS" | jq empty >/dev/null 2>&1; then
-            echo "Invalid response from commits API. Fallback to empty list."
-            COMMITS="[]"
+          while [ "$PAGE" -le "$MAX_PAGES" ]; do
+            echo "Fetching commits page ${PAGE}..."
+            PAGE_COMMITS=$(curl -sf \
+              "${AUTH_HEADER[@]}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?since=${SINCE_DATE}&sha=${SOURCE_BRANCH}&per_page=${COMMITS_PER_PAGE}&page=${PAGE}") || {
+                echo "Failed to fetch commits from API on page ${PAGE}."
+                FETCH_FAILED=1
+                break
+              }
+
+            if ! echo "$PAGE_COMMITS" | jq empty >/dev/null 2>&1; then
+              echo "Invalid commits API JSON on page ${PAGE}."
+              FETCH_FAILED=1
+              break
+            fi
+
+            PAGE_COUNT=$(echo "$PAGE_COMMITS" | jq 'length')
+            if [ "$PAGE_COUNT" -eq 0 ]; then
+              break
+            fi
+
+            temp_json=$(mktemp)
+            jq -s '.[0] + .[1]' "$ALL_COMMITS_FILE" <(echo "$PAGE_COMMITS") > "$temp_json"
+            mv "$temp_json" "$ALL_COMMITS_FILE"
+
+            if [ "$PAGE_COUNT" -lt "$COMMITS_PER_PAGE" ]; then
+              break
+            fi
+
+            PAGE=$((PAGE + 1))
+          done
+
+          if [ "$PAGE" -gt "$MAX_PAGES" ]; then
+            echo "Reached MAX_PAGES (${MAX_PAGES}), probing one extra page for truncation..."
+            EXTRA_PAGE_COMMITS=$(curl -sf \
+              "${AUTH_HEADER[@]}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}/commits?since=${SINCE_DATE}&sha=${SOURCE_BRANCH}&per_page=${COMMITS_PER_PAGE}&page=${PAGE}") || {
+                echo "Failed to probe extra page ${PAGE}."
+                FETCH_FAILED=1
+              }
+
+            if [ "$FETCH_FAILED" -eq 0 ]; then
+              if ! echo "$EXTRA_PAGE_COMMITS" | jq empty >/dev/null 2>&1; then
+                echo "Invalid JSON while probing extra page ${PAGE}."
+                FETCH_FAILED=1
+              else
+                EXTRA_PAGE_COUNT=$(echo "$EXTRA_PAGE_COMMITS" | jq 'length')
+                if [ "$EXTRA_PAGE_COUNT" -gt 0 ]; then
+                  echo "Detected more commits beyond MAX_PAGES; refusing partial window processing."
+                  FETCH_FAILED=1
+                fi
+              fi
+            fi
           fi
+
+          if [ "$FETCH_FAILED" -ne 0 ]; then
+            {
+              echo "did_poll=true"
+              echo "fetch_ok=false"
+              echo "has_match=false"
+              echo "match_count=0"
+              echo "report_file=$MATCH_FILE"
+              echo "checkpoint_time="
+              echo "polled_epoch="
+            } >> "$GITHUB_OUTPUT"
+            rm -f "$ALL_COMMITS_FILE"
+            exit 1
+          fi
+
+          COMMITS=$(cat "$ALL_COMMITS_FILE")
+          rm -f "$ALL_COMMITS_FILE"
 
           LATEST_SHA=$(echo "$COMMITS" | jq -r '.[0].sha // ""')
 
@@ -233,8 +311,6 @@ jobs:
             echo " Matched: ${sha:0:7} ($MATCH_REASON)"
           done <<< "$COMMIT_LIST"
 
-          echo "$CHECK_STARTED_AT" > .sync_state/last_checked_at
-
           if [ -n "$LATEST_SHA" ]; then
             echo "$LATEST_SHA" > .sync_state/last_success_sha
           fi
@@ -246,9 +322,13 @@ jobs:
           fi
 
           {
+            echo "did_poll=true"
+            echo "fetch_ok=true"
             echo "has_match=$HAS_MATCH"
             echo "match_count=$MATCH_COUNT"
             echo "report_file=$MATCH_FILE"
+            echo "checkpoint_time=$CHECK_STARTED_AT"
+            echo "polled_epoch=$NOW_EPOCH"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create Issues with full diff
@@ -443,6 +523,26 @@ jobs:
 
           git commit -m "docs: add source commit reference records [skip ci]"
           git push origin "HEAD:${GITHUB_REF_NAME:-master}"
+
+      - name: Finalize sync checkpoint
+        if: success() && steps.sync.outputs.did_poll == 'true' && steps.sync.outputs.fetch_ok == 'true'
+        env:
+          CHECKPOINT_TIME: ${{ steps.sync.outputs.checkpoint_time }}
+          POLLED_EPOCH: ${{ steps.sync.outputs.polled_epoch }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$CHECKPOINT_TIME" ]; then
+            echo "checkpoint_time is empty"
+            exit 1
+          fi
+          if [ -z "$POLLED_EPOCH" ]; then
+            echo "polled_epoch is empty"
+            exit 1
+          fi
+
+          echo "$CHECKPOINT_TIME" > .sync_state/last_checked_at
+          echo "$POLLED_EPOCH" > .sync_state/last_polled_epoch
 
       - name: Save sync state
         if: always()
