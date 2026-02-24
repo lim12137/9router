@@ -30,6 +30,10 @@ on:
         description: Minimum polling interval for scheduled runs
         required: false
         default: '720'
+      start_since:
+        description: Override start time (RFC3339, e.g. 2026-02-23T00:00:00Z)
+        required: false
+        default: ''
       issue_title_template:
         description: "Issue title template ({source_repo} {short_sha} {message} {reason})"
         required: false
@@ -60,6 +64,7 @@ jobs:
       MSG_KEYWORDS: ${{ github.event.inputs.msg_keywords || vars.SOURCE_SYNC_MSG_KEYWORDS || 'iflow|qwen' }}
       CODE_KEYWORDS: ${{ github.event.inputs.code_keywords || vars.SOURCE_SYNC_CODE_KEYWORDS || 'iflow|qwen' }}
       MIN_POLL_INTERVAL_MINUTES: ${{ github.event.inputs.min_poll_interval_minutes || vars.SOURCE_SYNC_MIN_POLL_INTERVAL_MINUTES || '720' }}
+      START_SINCE: ${{ github.event.inputs.start_since || '' }}
       FALLBACK_SINCE_DATE: ${{ vars.SOURCE_SYNC_FALLBACK_SINCE_DATE || '2025-02-14T00:00:00Z' }}
       COMMITS_PER_PAGE: ${{ vars.SOURCE_SYNC_COMMITS_PER_PAGE || '100' }}
       ISSUE_TITLE_TEMPLATE: ${{ github.event.inputs.issue_title_template || vars.SOURCE_SYNC_ISSUE_TITLE_TEMPLATE || '[SourceSync][{source_repo}] {short_sha} {message}' }}
@@ -175,6 +180,14 @@ jobs:
           if ! date -u -d "$LAST_CHECKED_AT" +"%Y-%m-%dT%H:%M:%SZ" >/dev/null 2>&1; then
             echo "Invalid last_checked_at ($LAST_CHECKED_AT), reset to fallback date."
             LAST_CHECKED_AT="$FALLBACK_SINCE_DATE"
+          fi
+          if [ -n "${START_SINCE:-}" ]; then
+            if date -u -d "$START_SINCE" +"%Y-%m-%dT%H:%M:%SZ" >/dev/null 2>&1; then
+              LAST_CHECKED_AT="$START_SINCE"
+              echo "Using start_since override: $LAST_CHECKED_AT"
+            else
+              echo "Invalid start_since ($START_SINCE), ignoring override."
+            fi
           fi
 
           CHECK_STARTED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
