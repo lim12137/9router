@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev --webpack --port 20128",
     "build": "next build --webpack",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test --experimental-default-type=module tests/responseHeaders.test.js"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
