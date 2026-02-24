@@ -1,4 +1,5 @@
 import { ERROR_TYPES, DEFAULT_ERROR_MESSAGES } from "../config/constants.js";
+import { mergeUpstreamHeaders } from "./responseHeaders.js";
 
 /**
  * Build OpenAI-compatible error response body
@@ -27,13 +28,15 @@ export function buildErrorBody(statusCode, message) {
  * @param {string} message - Error message
  * @returns {Response} HTTP Response object
  */
-export function errorResponse(statusCode, message) {
+export function errorResponse(statusCode, message, extraHeaders = null) {
+  const headers = mergeUpstreamHeaders({
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*"
+  }, extraHeaders);
+
   return new Response(JSON.stringify(buildErrorBody(statusCode, message)), {
     status: statusCode,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*"
-    }
+    headers
   });
 }
 
@@ -131,12 +134,12 @@ export async function parseUpstreamError(response, provider = null) {
  * @param {number|null} retryAfterMs - Optional retry-after time in milliseconds
  * @returns {{ success: false, status: number, error: string, response: Response, retryAfterMs?: number }}
  */
-export function createErrorResult(statusCode, message, retryAfterMs = null) {
+export function createErrorResult(statusCode, message, retryAfterMs = null, responseHeaders = null) {
   const result = {
     success: false,
     status: statusCode,
     error: message,
-    response: errorResponse(statusCode, message)
+    response: errorResponse(statusCode, message, responseHeaders)
   };
   
   // Add retryAfterMs if available (for Antigravity quota errors)

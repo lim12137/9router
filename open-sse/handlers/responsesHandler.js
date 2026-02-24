@@ -6,6 +6,7 @@
 import { handleChatCore } from "./chatCore.js";
 import { convertResponsesApiFormat } from "../translator/helpers/responsesApiHelper.js";
 import { createResponsesApiTransformStream } from "../transformer/responsesTransformer.js";
+import { mergeUpstreamHeaders } from "../utils/responseHeaders.js";
 
 /**
  * Handle /v1/responses request
@@ -55,16 +56,18 @@ export async function handleResponsesCore({ body, modelInfo, credentials, log, o
   const transformStream = createResponsesApiTransformStream(null);
   const transformedBody = response.body.pipeThrough(transformStream);
 
+  const responseHeaders = mergeUpstreamHeaders({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Access-Control-Allow-Origin": "*"
+  }, response.headers);
+
   return {
     success: true,
     response: new Response(transformedBody, {
       status: 200,
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "Access-Control-Allow-Origin": "*"
-      }
+      headers: responseHeaders
     })
   };
 }

@@ -8,6 +8,7 @@ import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { createRequestLogger } from "../utils/requestLogger.js";
 import { getModelTargetFormat, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
 import { createErrorResult, parseUpstreamError, formatProviderError } from "../utils/error.js";
+import { mergeUpstreamHeaders } from "../utils/responseHeaders.js";
 import { HTTP_STATUS } from "../config/constants.js";
 import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { saveRequestUsage, trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
@@ -549,7 +550,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     // Log error with full request body for debugging
     reqLogger.logError(new Error(message), finalBody || translatedBody);
 
-    return createErrorResult(statusCode, errMsg, retryAfterMs);
+    return createErrorResult(statusCode, errMsg, retryAfterMs, providerResponse?.headers);
   }
 
   // Non-streaming response
@@ -637,13 +638,15 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       console.error("[RequestDetail] Failed to save:", err.message);
     });
 
+    const responseHeaders = mergeUpstreamHeaders({
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*"
+    }, providerResponse?.headers);
+
     return {
       success: true,
       response: new Response(JSON.stringify(translatedResponse), {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*"
-        }
+        headers: responseHeaders
       })
     };
   }
@@ -655,12 +658,12 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     await onRequestSuccess();
   }
 
-  const responseHeaders = {
+  const responseHeaders = mergeUpstreamHeaders({
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     "Connection": "keep-alive",
     "Access-Control-Allow-Origin": "*"
-  };
+  }, providerResponse?.headers);
 
   let streamContent = "";
   let streamUsage = null;
