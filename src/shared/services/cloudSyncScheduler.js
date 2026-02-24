@@ -6,13 +6,15 @@ const INTERNAL_BASE_URL =
   process.env.NEXT_PUBLIC_BASE_URL ||
   "http://localhost:20128";
 
+const FIXED_SYNC_INTERVAL_MINUTES = 24 * 60;
+
 /**
  * Cloud sync scheduler
  */
 export class CloudSyncScheduler {
-  constructor(machineId = null, intervalMinutes = 15) {
+  constructor(machineId = null) {
     this.machineId = machineId;
-    this.intervalMinutes = intervalMinutes;
+    this.intervalMinutes = FIXED_SYNC_INTERVAL_MINUTES;
     this.intervalId = null;
   }
 
@@ -40,7 +42,7 @@ export class CloudSyncScheduler {
       this.syncWithRetry().catch(() => {});
     }, 30000);
     
-    // Then sync periodically
+    // Then sync once per day
     this.intervalId = setInterval(() => {
       this.syncWithRetry().catch(() => {});
     }, this.intervalMinutes * 60 * 1000);
@@ -114,9 +116,9 @@ export class CloudSyncScheduler {
 // Export a singleton instance if needed
 let cloudSyncScheduler = null;
 
-export async function getCloudSyncScheduler(machineId = null, intervalMinutes = 15) {
+export async function getCloudSyncScheduler(machineId = null) {
   if (!cloudSyncScheduler) {
-    cloudSyncScheduler = new CloudSyncScheduler(machineId, intervalMinutes);
+    cloudSyncScheduler = new CloudSyncScheduler(machineId);
   }
   return cloudSyncScheduler;
 }

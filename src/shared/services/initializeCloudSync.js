@@ -10,8 +10,8 @@ export async function initializeCloudSync() {
     // Cleanup null fields from existing data
     await cleanupProviderConnections();
     
-    // Create scheduler instance with default 15-minute interval
-    const scheduler = await getCloudSyncScheduler(null, 15);
+    // Create scheduler instance with fixed 24-hour interval
+    const scheduler = await getCloudSyncScheduler(null);
     
     // Start the scheduler
     await scheduler.start();
