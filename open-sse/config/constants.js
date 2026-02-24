@@ -51,8 +51,18 @@ export const PROVIDERS = {
     baseUrl: "https://portal.qwen.ai/v1/chat/completions",
     format: "openai",
     headers: {
-      "User-Agent": "google-api-nodejs-client/9.15.1",
-      "X-Goog-Api-Client": "gl-node/22.17.0"
+      "User-Agent": "QwenCode/0.10.3 (darwin; arm64)",
+      "X-Dashscope-Useragent": "QwenCode/0.10.3 (darwin; arm64)",
+      "X-Stainless-Runtime-Version": "v22.17.0",
+      "Sec-Fetch-Mode": "cors",
+      "X-Stainless-Lang": "js",
+      "X-Stainless-Arch": "arm64",
+      "X-Stainless-Package-Version": "5.11.0",
+      "X-Dashscope-Cachecontrol": "enable",
+      "X-Stainless-Retry-Count": "0",
+      "X-Stainless-Os": "MacOS",
+      "X-Dashscope-Authtype": "qwen-oauth",
+      "X-Stainless-Runtime": "node"
     },
     // Qwen OAuth configuration
     clientId: "f0304373b74a44d2b584a3fb70ca9e56", // From CLIProxyAPI
