@@ -17,7 +17,7 @@ on:
       source_branch:
         description: Source branch to poll
         required: false
-        default: master
+        default: main
       msg_keywords:
         description: Regex keywords for commit message matching
         required: false
@@ -56,7 +56,7 @@ jobs:
     env:
       SOURCE_OWNER: ${{ github.event.inputs.source_owner || vars.SOURCE_SYNC_SOURCE_OWNER || 'router-for-me' }}
       SOURCE_REPO: ${{ github.event.inputs.source_repo || vars.SOURCE_SYNC_SOURCE_REPO || 'CLIProxyAPI' }}
-      SOURCE_BRANCH: ${{ github.event.inputs.source_branch || vars.SOURCE_SYNC_SOURCE_BRANCH || 'master' }}
+      SOURCE_BRANCH: ${{ github.event.inputs.source_branch || vars.SOURCE_SYNC_SOURCE_BRANCH || 'main' }}
       MSG_KEYWORDS: ${{ github.event.inputs.msg_keywords || vars.SOURCE_SYNC_MSG_KEYWORDS || 'iflow|qwen' }}
       CODE_KEYWORDS: ${{ github.event.inputs.code_keywords || vars.SOURCE_SYNC_CODE_KEYWORDS || 'iflow|qwen' }}
       MIN_POLL_INTERVAL_MINUTES: ${{ github.event.inputs.min_poll_interval_minutes || vars.SOURCE_SYNC_MIN_POLL_INTERVAL_MINUTES || '720' }}
@@ -92,6 +92,41 @@ jobs:
           [ -f .sync_state/failed_shas ] || touch .sync_state/failed_shas
           [ -f .sync_state/last_polled_epoch ] || echo "0" > .sync_state/last_polled_epoch
           [ -f .sync_state/last_checked_at ] || echo "$FALLBACK_SINCE_DATE" > .sync_state/last_checked_at
+
+      - name: Detect source default branch
+        id: detect_branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          DEFAULT_BRANCH="main"
+          API_RESPONSE=$(curl -sf \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${SOURCE_OWNER}/${SOURCE_REPO}") || API_RESPONSE=""
+          if [ -n "$API_RESPONSE" ]; then
+            DETECTED=$(echo "$API_RESPONSE" | jq -r '.default_branch // empty')
+            if [ -n "$DETECTED" ] && [ "$DETECTED" != "null" ]; then
+              DEFAULT_BRANCH="$DETECTED"
+            fi
+          fi
+          echo "branch=$DEFAULT_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve source branch
+        run: |
+          set -euo pipefail
+
+          if [ -n "${{ github.event.inputs.source_branch }}" ]; then
+            echo "SOURCE_BRANCH=${{ github.event.inputs.source_branch }}" >> "$GITHUB_ENV"
+            echo "Using explicit input source branch: ${{ github.event.inputs.source_branch }}"
+          elif [ -n "${{ vars.SOURCE_SYNC_SOURCE_BRANCH }}" ]; then
+            echo "SOURCE_BRANCH=${{ vars.SOURCE_SYNC_SOURCE_BRANCH }}" >> "$GITHUB_ENV"
+            echo "Using repo var source branch: ${{ vars.SOURCE_SYNC_SOURCE_BRANCH }}"
+          else
+            echo "SOURCE_BRANCH=${{ steps.detect_branch.outputs.branch }}" >> "$GITHUB_ENV"
+            echo "Using detected default branch: ${{ steps.detect_branch.outputs.branch }}"
+          fi
 
       - name: Poll + dual detection
         id: sync
@@ -522,7 +557,7 @@ jobs:
           fi
 
           git commit -m "docs: add source commit reference records [skip ci]"
-          git push origin "HEAD:${GITHUB_REF_NAME:-master}"
+          git push origin "HEAD:${GITHUB_REF_NAME:-main}"
 
       - name: Finalize sync checkpoint
         if: success() && steps.sync.outputs.did_poll == 'true' && steps.sync.outputs.fetch_ok == 'true'
