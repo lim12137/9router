@@ -38,6 +38,7 @@ export const PROVIDER_MODELS = {
   ],
   qw: [  // Qwen Code
     // { id: "qwen3-coder-next", name: "Qwen3 Coder Next" },
+    { id: "coder-model", name: "Qwen 3.5 Plus" },
     { id: "qwen3-coder-plus", name: "Qwen3 Coder Plus" },
     { id: "qwen3-coder-flash", name: "Qwen3 Coder Flash" },
     { id: "vision-model", name: "Qwen3 Vision Model" },
